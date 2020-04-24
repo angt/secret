@@ -1,0 +1,572 @@
+#define _GNU_SOURCE
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/poll.h>
+#include <sys/uio.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <termios.h>
+#include <signal.h>
+
+#include "argz/argz.c"
+#include "libhydrogen/hydrogen.c"
+
+#define S_COUNT(x) (sizeof(x) / sizeof((x)[0]))
+#define S_CTX_MASTER "MASTER"
+#define S_CTX_SECRET "SECRET"
+#define S_ENV_AGENT  "SECRET_AGENT"
+
+struct {
+    char path[1024];
+    int pipe[2];
+    struct {
+        uint8_t key[hydro_secretbox_KEYBYTES];
+        char msg[1024];
+    } x;
+    uint8_t enc[hydro_secretbox_HEADERBYTES + 1024];
+} s = {
+    .pipe = {-1, -1},
+};
+
+_Noreturn static void
+s_exit(int code)
+{
+    hydro_memzero(&s.x, sizeof(s.x));
+    exit(code);
+}
+
+_Noreturn static void
+s_fatal(const char *fmt, ...)
+{
+    va_list ap;
+    char buf[256];
+    size_t size = sizeof(buf);
+
+    va_start(ap, fmt);
+    int ret = vsnprintf(buf, size, fmt, ap);
+    va_end(ap);
+
+    if (ret <= 0) {
+        buf[0] = '?';
+        size = 1;
+    }
+
+    if (size > (size_t)ret)
+        size = (size_t)ret;
+
+    char hdr[] = "Fatal: ";
+    struct iovec iov[] = {
+        {hdr, sizeof(hdr) - 1},
+        {buf, size}, {"\n", 1},
+    };
+
+    writev(2, iov, 3);
+    s_exit(1);
+}
+
+static int
+s_read(int fd, void *data, size_t size)
+{
+    size_t done = 0;
+
+    while (done < size) {
+        ssize_t r = read(fd, (char *)data + done, size - done);
+        if (r == 0)
+            break;
+        if (r == (ssize_t)-1) switch (errno) {
+            case EAGAIN: continue;
+            case EINTR:  s_exit(1); // XXX
+            default:     s_fatal("read: %s", strerror(errno));
+        }
+        done += r;
+    }
+    return done != size;
+}
+
+static int
+s_write(int fd, const void *data, size_t size)
+{
+    size_t done = 0;
+
+    while (done < size) {
+        ssize_t r = write(fd, (const char *)data + done, size - done);
+        if (r == 0)
+            break;
+        if (r == (ssize_t)-1) switch (errno) {
+            case EAGAIN: continue;
+            case EINTR:  s_exit(1); // XXX
+            default:     s_fatal("write: %s", strerror(errno));
+        }
+        done += r;
+    }
+    return done != size;
+}
+
+static size_t
+s_input(unsigned char *buf, size_t size, const char *prompt)
+{
+    const char *tty = "/dev/tty";
+    int fd = open(tty, O_RDWR | O_NOCTTY);
+
+    if (fd == -1)
+        s_fatal("%s: %s", tty, strerror(errno));
+
+    if (prompt)
+        s_write(fd, prompt, strlen(prompt));
+
+    struct termios old;
+    tcgetattr(fd, &old);
+
+    struct termios new = old;;
+    new.c_lflag &= ~(ECHO | ECHONL);
+
+    tcsetattr(fd, TCSAFLUSH, &new);
+    ssize_t ret = read(fd, buf, size - 1);
+    tcsetattr(fd, TCSAFLUSH, &old);
+
+    s_write(fd, "\n", 1);
+    close(fd);
+
+    if (ret <= 0)
+        s_exit(0);
+
+    for (ssize_t i = 0; i < ret; i++)
+        if (buf[i] < ' ') ret = i;
+
+    memset(buf + ret, 0, size - ret);
+    return ret;
+}
+
+static int
+s_open_secret(int use_tty)
+{
+    int fd = open(s.path, O_RDWR);
+
+    if (fd == -1) switch (errno) {
+        case ENOENT: s_fatal("No secret store: %s", s.path);
+        default:     s_fatal("%s: %s", s.path, strerror(errno));
+    }
+
+    struct flock fl = {
+        .l_type = F_WRLCK,
+        .l_whence = SEEK_SET,
+    };
+
+    if (fcntl(fd, F_SETLKW, &fl))
+        s_fatal("Unable to lock secret store: %s", s.path);
+
+    uint8_t master[hydro_pwhash_MASTERKEYBYTES];
+
+    if (s_read(fd, master, sizeof(master)))
+        s_fatal("Unable to parse %s", s.path);
+
+    char *agent = getenv(S_ENV_AGENT);
+
+    if (agent) {
+        long r = strtol(agent, NULL, 10);
+        if (r > 2L && r < 1024L && !s_read((int)r, s.x.key, sizeof(s.x.key)))
+            return fd;
+    }
+
+    if (!use_tty)
+        s_exit(0);
+
+    unsigned char pass[128];
+    size_t len = s_input(pass, sizeof(pass), "Password: ");
+
+    if (!len)
+        s_exit(0);
+
+    if (hydro_pwhash_deterministic(s.x.key, sizeof(s.x.key),
+                                   (char *)pass, len,
+                                   S_CTX_MASTER, master, 100000, 0, 1))
+        s_fatal("Call of the Jedi...");
+
+    return fd;
+}
+
+static int
+s_print_keys(int use_tty)
+{
+    int fd = s_open_secret(use_tty);
+
+    while (!s_read(fd, s.enc, sizeof(s.enc))) {
+        if (hydro_secretbox_decrypt(s.x.msg,
+                                    s.enc, sizeof(s.enc), 0,
+                                    S_CTX_SECRET, s.x.key))
+            continue;
+        s_write(1, s.x.msg, strnlen(s.x.msg, sizeof(s.x.msg)));
+        s_write(1, "\n", 1);
+    }
+
+    close(fd);
+    return 0;
+}
+
+static size_t
+s_valid(const char *str)
+{
+    if (!str)
+        return 0;
+
+    for (size_t i = 0; i < 256; i++) {
+        if (!str[i])
+            return i;
+        if (str[i] < '!' || str[i] > '~')
+            return 0;
+    }
+    return 0;
+}
+
+static const char *
+s_get_secret(int fd, const char *key, int create)
+{
+    size_t len = s_valid(key);
+
+    if (!len)
+        s_fatal("Secret %s is malformed", key);
+
+    while (!s_read(fd, s.enc, sizeof(s.enc))) {
+        if (hydro_secretbox_decrypt(s.x.msg,
+                                    s.enc, sizeof(s.enc), 0,
+                                    S_CTX_SECRET, s.x.key))
+            continue;
+        if (hydro_equal(s.x.msg, key, len + 1)) {
+            if (create)
+                s_fatal("Secret %s exists!", key);
+            return &s.x.msg[len + 1];
+        }
+    }
+
+    if (!create)
+        s_fatal("Secret %s not found", key);
+
+    return NULL;
+}
+
+static void
+s_set_secret(int fd, const char *id, const unsigned char *secret)
+{
+    memset(&s.x.msg, 0, sizeof(s.x.msg));
+
+    int ret = snprintf(s.x.msg, sizeof(s.x.msg), "%s%c%s", id, 0, secret);
+
+    if (ret <= 0 || (size_t)ret >= sizeof(s.x.msg))
+        s_fatal("Entry too big!");
+
+    hydro_secretbox_encrypt(s.enc,
+                            s.x.msg, sizeof(s.x.msg), 0,
+                            S_CTX_SECRET, s.x.key);
+    s_write(fd, s.enc, sizeof(s.enc));
+}
+
+static int
+s_init(int argc, char **argv, void *data)
+{
+    if (argz_help(argc, argv))
+        return 0;
+
+    if (argc != 1)
+        return argc;
+
+    int fd = open(s.path, O_RDWR | O_CREAT | O_EXCL, 0600);
+
+    if (fd == -1) switch (errno) {
+        case EEXIST: s_fatal("Secret store %s already exists", s.path);
+        default:     s_fatal("%s: %s", s.path, strerror(errno));
+    }
+
+    uint8_t master[hydro_pwhash_MASTERKEYBYTES];
+    hydro_random_buf(master, sizeof(master));
+    s_write(fd, master, sizeof(master));
+    return 0;
+}
+
+static int
+s_list(int argc, char **argv, void *data)
+{
+    if (argz_help(argc, argv))
+        return 0;
+
+    if (argc == 1)
+        return s_print_keys(1);
+
+    return argc;
+}
+
+static void
+s_input_secret(unsigned char *buf, size_t size)
+{
+    if (s_input(buf, size, "Secret [random]: "))
+        return;
+
+    const size_t len = 24;
+
+    memset(buf, 0, size);
+    hydro_random_buf(buf, len);
+
+    for (unsigned i = 0; i < len; i++)
+        buf[i] = '!' + buf[i] % (1U + '~' - '!');
+
+    s_write(1, buf, len);
+    s_write(1, "\n", 1);
+}
+
+static void
+s_help_keys(int argc, char **argv, int print_keys)
+{
+    if (!argz_help(argc, argv))
+        return;
+
+    if (isatty(1)) {
+        printf("Usage: %s KEY\n", argv[0]);
+    } else if (print_keys) {
+        s_print_keys(0);
+    }
+    s_exit(0);
+}
+
+static int
+s_add(int argc, char **argv, void *data)
+{
+    s_help_keys(argc, argv, 0);
+
+    if (argc != 2)
+        return argc;
+
+    int fd = s_open_secret(1);
+    s_get_secret(fd, argv[1], 1);
+
+    unsigned char secret[1024];
+    s_input_secret(secret, sizeof(secret));
+
+    if (lseek(fd, 0, SEEK_END) == (off_t)-1)
+        s_fatal("seek: %s", strerror(errno));
+
+    s_set_secret(fd, argv[1], secret);
+    close(fd);
+    return 0;
+}
+
+static int
+s_change(int argc, char **argv, void *data)
+{
+    s_help_keys(argc, argv, 1);
+
+    if (argc != 2)
+        return argc;
+
+    int fd = s_open_secret(1);
+    s_get_secret(fd, argv[1], 0);
+
+    unsigned char secret[1024];
+    s_input_secret(secret, sizeof(secret));
+
+    if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
+        s_fatal("seek: %s", strerror(errno));
+
+    s_set_secret(fd, argv[1], secret);
+    close(fd);
+    return 0;
+}
+
+static int
+s_show(int argc, char **argv, void *data)
+{
+    s_help_keys(argc, argv, 1);
+
+    if (argc != 2)
+        return argc;
+
+    int fd = s_open_secret(1);
+    const char *secret = s_get_secret(fd, argv[1], 0);
+
+    if (secret) {
+        s_write(1, secret, strlen(secret));
+        if (isatty(1)) s_write(1, "\n", 1);
+    }
+    close(fd);
+    return 0;
+}
+
+static void
+s_cloexec(int fd)
+{
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC))
+        s_fatal("cloexec: %s", strerror(errno));
+}
+
+static void
+s_nonblck(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+
+    if (flags == -1)
+        return;
+
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+static int
+s_agent(int argc, char **argv, void *data)
+{
+    if (argz_help(argc, argv)) {
+        if (isatty(1)) {
+            printf("Usage: %s CMD [ARG...]\n", argv[0]);
+        } else {
+            printf("CMD\n");
+        }
+        return 0;
+    }
+
+    if (argc <= 1)
+        return argc;
+
+    if (getenv(S_ENV_AGENT))
+        s_fatal("Already running...");
+
+    close(s_open_secret(1));
+
+    int kfd[2];
+
+    if (pipe(kfd) || pipe(s.pipe))
+        s_fatal("pipe: %s", strerror(errno));
+
+    s_cloexec(s.pipe[0]);
+    s_cloexec(s.pipe[1]);
+    s_nonblck(s.pipe[0]);
+    s_nonblck(s.pipe[1]);
+    s_nonblck(kfd[0]);
+    s_nonblck(kfd[1]);
+
+    pid_t pid = fork();
+
+    if (pid == (pid_t)-1)
+        s_fatal("fork: %s", strerror(errno));
+
+    if (!pid) {
+        close(kfd[1]);
+        hydro_memzero(&s.x, sizeof(s.x));
+
+        char tmp[32];
+        snprintf(tmp, sizeof(tmp), "%d", kfd[0]);
+        setenv(S_ENV_AGENT, tmp, 1);
+
+        execvp(argv[1], argv + 1);
+        s_fatal("%s: %s", argv[1], strerror(errno));
+    }
+
+    close(kfd[0]);
+
+    struct pollfd fds[] = {
+        {.fd = s.pipe[0], .events = POLLIN},
+        {.fd = kfd[1],    .events = POLLOUT},
+    };
+
+    while (1) {
+        if (poll(fds, 2, -1) == -1) {
+            if (errno == EINTR)
+                continue;
+            s_fatal("poll: %s", strerror(errno));
+        }
+
+        if (fds[0].revents == POLLIN) {
+            char tmp;
+            read(fds[0].fd, &tmp, 1);
+
+            int status;
+            pid_t ret = waitpid(-1, &status, WNOHANG);
+
+            if (ret == (pid_t)-1) switch (errno) {
+                case EINTR:  continue;
+                case EAGAIN: continue;
+                case ECHILD: s_exit(0);
+                default:     s_fatal("waitpid: %s", strerror(errno));
+            }
+
+            if ((ret == pid) &&
+                (WIFEXITED(status) || WIFSIGNALED(status)))
+                s_exit(0);
+        }
+
+        if (fds[1].revents == POLLOUT)
+            write(fds[1].fd, s.x.key, sizeof(s.x.key));
+    }
+}
+
+static void
+s_handler(int sig)
+{
+    int err = errno;
+
+    if (sig == SIGCHLD && s.pipe[1] != -1)
+        write(s.pipe[1], "", 1);
+
+    errno = err;
+}
+
+static void
+s_set_signals(void)
+{
+    int sig[] = {
+        SIGHUP,  SIGINT,  SIGQUIT,
+        SIGUSR1, SIGUSR2, SIGPIPE,
+        SIGALRM, SIGTERM, SIGSTOP,
+        SIGTSTP, SIGTTIN, SIGCONT,
+    };
+
+    struct sigaction sa = {
+        .sa_handler = s_handler,
+    };
+
+    for (size_t i = 0; i < S_COUNT(sig); i++)
+        sigaction(sig[i], &sa, NULL);
+}
+
+static void
+s_set_path(void)
+{
+    char *home = getenv("HOME");
+
+    if (!home)
+        s_fatal("$HOME less");
+
+    int ret = snprintf(s.path, sizeof(s.path), "%s/.secret", home);
+
+    if (ret <= 0 || (size_t)ret >= sizeof(s.path))
+        s_fatal("Maybe your $HOME is too big...");
+}
+
+int
+main(int argc, char **argv)
+{
+    hydro_init();
+
+    s_set_path();
+    s_set_signals();
+
+    const char *alta[] = {"set", "new", "generate", "gen", NULL};
+    const char *alts[] = {"get", "print", "echo", NULL};
+    const char *altc[] = {"replace", "update", "regenerate", "regen", NULL};
+    const char *altz[] = {"zone", NULL};
+
+    struct argz mainz[] = {
+        {"init",   "Init secret storage", &s_init,                .grp = 1},
+        {"list",   "List all secrets",    &s_list,                .grp = 1},
+        {"add",    "Add a new secret",    &s_add,    .alt = alta, .grp = 1},
+        {"show",   "Show a secret",       &s_show,   .alt = alts, .grp = 1},
+        {"change", "Change a secret",     &s_change, .alt = altc, .grp = 1},
+        {"agent",  "Exec in secret zone", &s_agent,  .alt = altz, .grp = 1},
+        {}};
+
+    if (argc == 1) {
+        printf("Available commands:\n");
+        argz_print(mainz);
+    } else {
+        int ret = argz(argc, argv, mainz);
+        hydro_memzero(&s.x, sizeof(s.x));
+        return ret;
+    }
+}

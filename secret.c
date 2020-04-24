@@ -514,7 +514,8 @@ s_set_signals(void)
         SIGHUP,  SIGINT,  SIGQUIT,
         SIGUSR1, SIGUSR2, SIGPIPE,
         SIGALRM, SIGTERM, SIGSTOP,
-        SIGTSTP, SIGTTIN, SIGCONT,
+        SIGTSTP, SIGTTIN, SIGCHLD,
+        SIGCONT,
     };
 
     struct sigaction sa = {

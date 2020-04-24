@@ -16,6 +16,10 @@ Keep your little secrets, publicly.
 
     $ make install prefix=/usr
 
+Currently, bash completion is not installed. Download and source the file [argz.sh](argz/argz.sh) then:
+
+    $ complete -F _argz secret
+
 ## Commands
 
     $ secret

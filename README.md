@@ -24,12 +24,12 @@ Currently, bash completion is not installed. Download and source the file [argz.
 
     $ secret
     Available commands:
-        init      Init secret storage
-        list      List all secrets
+        init      Init a secret storage for the user
+        list      List all secrets for a given passphrase
         add       Add a new secret
-        show      Show a secret
-        change    Change a secret
-        agent     Exec in secret zone
+        show      Show an existing secret
+        change    Change an existing secret
+        agent     Run a process in a trusted zone
 
 ## Examples
 

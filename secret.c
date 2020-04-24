@@ -548,18 +548,18 @@ main(int argc, char **argv)
     s_set_path();
     s_set_signals();
 
-    const char *alta[] = {"set", "new", "generate", "gen", NULL};
+    const char *alta[] = {"set", "new", "gen", "insert", NULL};
     const char *alts[] = {"get", "print", "echo", NULL};
-    const char *altc[] = {"replace", "update", "regenerate", "regen", NULL};
+    const char *altc[] = {"replace", "update", "edit", "regen", NULL};
     const char *altz[] = {"zone", NULL};
 
     struct argz mainz[] = {
-        {"init",   "Init secret storage", &s_init,                .grp = 1},
-        {"list",   "List all secrets",    &s_list,                .grp = 1},
-        {"add",    "Add a new secret",    &s_add,    .alt = alta, .grp = 1},
-        {"show",   "Show a secret",       &s_show,   .alt = alts, .grp = 1},
-        {"change", "Change a secret",     &s_change, .alt = altc, .grp = 1},
-        {"agent",  "Exec in secret zone", &s_agent,  .alt = altz, .grp = 1},
+        {"init",   "Init a secret storage for the user",      &s_init,        .grp = 1},
+        {"list",   "List all secrets for a given passphrase", &s_list,        .grp = 1},
+        {"add",    "Add a new secret",                &s_add,    .alt = alta, .grp = 1},
+        {"show",   "Show an existing secret",         &s_show,   .alt = alts, .grp = 1},
+        {"change", "Change an existing secret",       &s_change, .alt = altc, .grp = 1},
+        {"agent",  "Run a process in a trusted zone", &s_agent,  .alt = altz, .grp = 1},
         {}};
 
     if (argc == 1) {

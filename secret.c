@@ -14,9 +14,10 @@
 #include "libhydrogen/hydrogen.c"
 
 #define S_COUNT(x) (sizeof(x) / sizeof((x)[0]))
-#define S_CTX_MASTER "MASTER"
-#define S_CTX_SECRET "SECRET"
-#define S_ENV_AGENT  "SECRET_AGENT"
+#define S_CTX_MASTER    "MASTER"
+#define S_CTX_SECRET    "SECRET"
+#define S_ENV_AGENT     "SECRET_AGENT"
+#define S_ENV_AGENT_REQ "SECRET_AGENT_REQ"
 
 struct {
     char path[1024];
@@ -140,6 +141,22 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
 }
 
 static int
+s_fdenv(const char *env)
+{
+    char *str = getenv(env);
+
+    if (!str)
+        return -1;
+
+    long fd = strtol(str, NULL, 10);
+
+    if (fd <= 2L || fd >= 1024L)
+        return -1;
+
+    return (int)fd;
+}
+
+static int
 s_open_secret(int use_tty)
 {
     int fd = open(s.path, O_RDWR);
@@ -162,13 +179,13 @@ s_open_secret(int use_tty)
     if (s_read(fd, master, sizeof(master)))
         s_fatal("Unable to parse %s", s.path);
 
-    char *agent = getenv(S_ENV_AGENT);
+    int wfd = s_fdenv(S_ENV_AGENT_REQ);
+    int rfd = s_fdenv(S_ENV_AGENT);
 
-    if (agent) {
-        long r = strtol(agent, NULL, 10);
-        if (r > 2L && r < 1024L && !s_read((int)r, s.x.key, sizeof(s.x.key)))
-            return fd;
-    }
+    if (wfd >= 0 && rfd >= 0 &&
+        !s_write(wfd, "", 1) &&
+        !s_read(rfd, s.x.key, sizeof(s.x.key)))
+        return fd;
 
     if (!use_tty)
         s_exit(0);
@@ -429,17 +446,16 @@ s_agent(int argc, char **argv, void *data)
 
     close(s_open_secret(1));
 
-    int kfd[2];
+    int rfd[2], wfd[2];
 
-    if (pipe(kfd) || pipe(s.pipe))
+    if (pipe(rfd) || pipe(wfd) || pipe(s.pipe))
         s_fatal("pipe: %s", strerror(errno));
 
-    s_cloexec(s.pipe[0]);
-    s_cloexec(s.pipe[1]);
-    s_nonblck(s.pipe[0]);
-    s_nonblck(s.pipe[1]);
-    s_nonblck(kfd[0]);
-    s_nonblck(kfd[1]);
+    s_cloexec(s.pipe[0]); s_cloexec(s.pipe[1]);
+    s_nonblck(s.pipe[0]); s_nonblck(s.pipe[1]);
+
+    s_nonblck(rfd[0]); s_nonblck(rfd[1]);
+    s_nonblck(wfd[0]); s_nonblck(wfd[1]);
 
     pid_t pid = fork();
 
@@ -447,32 +463,34 @@ s_agent(int argc, char **argv, void *data)
         s_fatal("fork: %s", strerror(errno));
 
     if (!pid) {
-        close(kfd[1]);
+        close(rfd[0]); close(wfd[1]);
         hydro_memzero(&s.x, sizeof(s.x));
 
         char tmp[32];
-        snprintf(tmp, sizeof(tmp), "%d", kfd[0]);
+        snprintf(tmp, sizeof(tmp), "%d", rfd[1]);
+        setenv(S_ENV_AGENT_REQ, tmp, 1);
+        snprintf(tmp, sizeof(tmp), "%d", wfd[0]);
         setenv(S_ENV_AGENT, tmp, 1);
 
         execvp(argv[1], argv + 1);
         s_fatal("%s: %s", argv[1], strerror(errno));
     }
 
-    close(kfd[0]);
+    close(rfd[1]); close(wfd[0]);
 
     struct pollfd fds[] = {
         {.fd = s.pipe[0], .events = POLLIN},
-        {.fd = kfd[1],    .events = POLLOUT},
+        {.fd = rfd[0],    .events = POLLIN},
     };
 
     while (1) {
-        if (poll(fds, 2, -1) == -1) {
+        if (poll(fds, 1 + (fds[1].fd >= 0), -1) == -1) {
             if (errno == EINTR)
                 continue;
             s_fatal("poll: %s", strerror(errno));
         }
 
-        if (fds[0].revents == POLLIN) {
+        if (fds[0].revents & POLLIN) {
             char tmp;
             read(fds[0].fd, &tmp, 1);
 
@@ -491,8 +509,19 @@ s_agent(int argc, char **argv, void *data)
                 s_exit(0);
         }
 
-        if (fds[1].revents == POLLOUT)
+        if (fds[1].revents & (POLLERR | POLLHUP)) {
+            close(rfd[0]); close(wfd[1]);
+            fds[1].fd = -1;
+        } else if (fds[1].revents & POLLIN) {
+            char tmp;
+            read(fds[1].fd, &tmp, 1);
+            fds[1].fd = wfd[1];
+            fds[1].events = POLLOUT;
+        } else if (fds[1].revents & POLLOUT) {
             write(fds[1].fd, s.x.key, sizeof(s.x.key));
+            fds[1].fd = rfd[0];
+            fds[1].events = POLLIN;
+        }
     }
 }
 

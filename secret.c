@@ -71,14 +71,15 @@ static int
 s_read(int fd, void *data, size_t size)
 {
     size_t done = 0;
+    struct pollfd pfd = {.fd = fd, .events = POLLIN};
 
     while (done < size) {
         ssize_t r = read(fd, (char *)data + done, size - done);
         if (r == 0)
             break;
         if (r == (ssize_t)-1) switch (errno) {
-            case EAGAIN: continue;
-            case EINTR:  s_exit(1); // XXX
+            case EAGAIN: if (!poll(&pfd, 1, 200)) return 1; /* FALLTHRU */
+            case EINTR:  continue;
             default:     s_fatal("read: %s", strerror(errno));
         }
         done += r;
@@ -90,14 +91,15 @@ static int
 s_write(int fd, const void *data, size_t size)
 {
     size_t done = 0;
+    struct pollfd pfd = {.fd = fd, .events = POLLOUT};
 
     while (done < size) {
         ssize_t r = write(fd, (const char *)data + done, size - done);
         if (r == 0)
             break;
         if (r == (ssize_t)-1) switch (errno) {
-            case EAGAIN: continue;
-            case EINTR:  s_exit(1); // XXX
+            case EAGAIN: if (!poll(&pfd, 1, 200)) return 1; /* FALLTHRU */
+            case EINTR:  continue;
             default:     s_fatal("write: %s", strerror(errno));
         }
         done += r;

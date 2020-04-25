@@ -1,0 +1,23 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build
+      run: |
+          git submodule update --init --recursive
+          make prefix=. install
+
+    - uses: actions/upload-artifact@v1
+      with:
+        name: ${{ matrix.os }}
+        path: ./bin

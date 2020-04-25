@@ -16,13 +16,16 @@ Keep your little secrets, publicly.
 
 ## Build and install
 
+Clone the repository recursively:
+
     $ git clone https://github.com/angt/secret --recursive
     $ cd secret
-    $ make
 
-Then, as `root`:
+Then, run as `root`:
 
-    # make install prefix=/usr
+    # make install
+
+As usual, you can customize the destination with `DESTDIR` and `prefix`.
 
 Currently, bash completion is not installed.
 Download the file [argz.sh](argz/argz.sh) then:

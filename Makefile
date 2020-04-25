@@ -7,7 +7,7 @@ secret:
 
 install: secret
 	mkdir -p $(DESTDIR)$(prefix)/bin
-	cp -f secret $(DESTDIR)$(prefix)/bin
+	mv -f secret $(DESTDIR)$(prefix)/bin
 
 uninstall:
 	rm -f $(DESTDIR)$(prefix)/bin/secret

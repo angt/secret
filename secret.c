@@ -13,11 +13,10 @@
 #include "argz/argz.c"
 #include "libhydrogen/hydrogen.c"
 
-#define S_COUNT(x)      (sizeof(x) / sizeof((x)[0]))
-#define S_CTX_MASTER    "MASTER"
-#define S_CTX_SECRET    "SECRET"
-#define S_ENV_AGENT     "SECRET_AGENT"
-#define S_ENV_AGENT_REQ "SECRET_AGENT_REQ"
+#define S_COUNT(x)   (sizeof(x) / sizeof((x)[0]))
+#define S_CTX_MASTER "MASTER"
+#define S_CTX_SECRET "SECRET"
+#define S_ENV_AGENT  "SECRET_AGENT"
 
 struct {
     char path[1024];
@@ -142,22 +141,6 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
 }
 
 static int
-s_fdenv(const char *env)
-{
-    char *str = getenv(env);
-
-    if (!str)
-        return -1;
-
-    long fd = strtol(str, NULL, 10);
-
-    if (fd <= 2L || fd >= 1024L)
-        return -1;
-
-    return (int)fd;
-}
-
-static int
 s_open_secret(int use_tty)
 {
     int fd = open(s.path, O_RDWR);
@@ -180,10 +163,11 @@ s_open_secret(int use_tty)
     if (s_read(fd, master, sizeof(master)))
         s_fatal("Unable to parse %s", s.path);
 
-    int wfd = s_fdenv(S_ENV_AGENT_REQ);
-    int rfd = s_fdenv(S_ENV_AGENT);
+    const char *agent = getenv(S_ENV_AGENT);
+    int wfd = -1, rfd = -1;
 
-    if (wfd >= 0 && rfd >= 0 &&
+    if (agent && sscanf(agent, "%d.%d", &wfd, &rfd) == 2 &&
+        wfd >= 0 && rfd >= 0 &&
         !s_write(wfd, "", 1) &&
         !s_read(rfd, s.x.key, sizeof(s.x.key)))
         return fd;
@@ -466,9 +450,7 @@ s_agent(int argc, char **argv, void *data)
         hydro_memzero(&s.x, sizeof(s.x));
 
         char tmp[32];
-        snprintf(tmp, sizeof(tmp), "%d", rfd[1]);
-        setenv(S_ENV_AGENT_REQ, tmp, 1);
-        snprintf(tmp, sizeof(tmp), "%d", wfd[0]);
+        snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
         setenv(S_ENV_AGENT, tmp, 1);
 
         execvp(argv[1], argv + 1);

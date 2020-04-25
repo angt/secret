@@ -17,10 +17,8 @@
 #include "argz/argz.c"
 #include "libhydrogen/hydrogen.c"
 
-#define S_COUNT(x)   (sizeof(x) / sizeof((x)[0]))
-#define S_CTX_MASTER "MASTER"
-#define S_CTX_SECRET "SECRET"
-#define S_ENV_AGENT  "SECRET_AGENT"
+#define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
+#define S_ENV_AGENT "SECRET_AGENT"
 
 struct {
     char path[1024];
@@ -30,8 +28,12 @@ struct {
         char msg[1024];
     } x;
     uint8_t enc[hydro_secretbox_HEADERBYTES + 1024];
+    char ctx_master[hydro_pwhash_CONTEXTBYTES];
+    char ctx_secret[hydro_secretbox_CONTEXTBYTES];
 } s = {
     .pipe = {-1, -1},
+    .ctx_master = "MASTER",
+    .ctx_secret = "SECRET",
 };
 
 _Noreturn static void
@@ -187,7 +189,7 @@ s_open_secret(int use_tty)
 
     if (hydro_pwhash_deterministic(s.x.key, sizeof(s.x.key),
                                    (char *)pass, len,
-                                   S_CTX_MASTER, master, 100000, 0, 1))
+                                   s.ctx_master, master, 100000, 0, 1))
         s_fatal("Call of the Jedi...");
 
     return fd;
@@ -201,7 +203,7 @@ s_print_keys(int use_tty)
     while (!s_read(fd, s.enc, sizeof(s.enc))) {
         if (hydro_secretbox_decrypt(s.x.msg,
                                     s.enc, sizeof(s.enc), 0,
-                                    S_CTX_SECRET, s.x.key))
+                                    s.ctx_master, s.x.key))
             continue;
         s_write(1, s.x.msg, strnlen(s.x.msg, sizeof(s.x.msg)));
         s_write(1, "\n", 1);
@@ -236,7 +238,7 @@ s_get_secret(int fd, const char *key, int create)
     while (!s_read(fd, s.enc, sizeof(s.enc))) {
         if (hydro_secretbox_decrypt(s.x.msg,
                                     s.enc, sizeof(s.enc), 0,
-                                    S_CTX_SECRET, s.x.key))
+                                    s.ctx_secret, s.x.key))
             continue;
         if (hydro_equal(s.x.msg, key, len + 1)) {
             if (create)
@@ -262,7 +264,8 @@ s_set_secret(int fd, const char *id, const unsigned char *secret)
 
     hydro_secretbox_encrypt(s.enc,
                             s.x.msg, sizeof(s.x.msg), 0,
-                            S_CTX_SECRET, s.x.key);
+                            s.ctx_secret, s.x.key);
+
     s_write(fd, s.enc, sizeof(s.enc));
 }
 
@@ -526,9 +529,8 @@ s_set_signals(void)
     int sig[] = {
         SIGHUP,  SIGINT,  SIGQUIT,
         SIGUSR1, SIGUSR2, SIGPIPE,
-        SIGALRM, SIGTERM, SIGSTOP,
-        SIGTSTP, SIGTTIN, SIGCHLD,
-        SIGCONT,
+        SIGALRM, SIGTERM, SIGTSTP,
+        SIGTTIN, SIGCHLD,
     };
 
     struct sigaction sa = {

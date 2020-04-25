@@ -1,19 +1,19 @@
 #define _GNU_SOURCE
 
+#include <poll.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/poll.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
-#include <unistd.h>
 #include <termios.h>
-#include <signal.h>
+#include <unistd.h>
 
 #include "argz/argz.c"
 #include "libhydrogen/hydrogen.c"
 
-#define S_COUNT(x) (sizeof(x) / sizeof((x)[0]))
+#define S_COUNT(x)      (sizeof(x) / sizeof((x)[0]))
 #define S_CTX_MASTER    "MASTER"
 #define S_CTX_SECRET    "SECRET"
 #define S_ENV_AGENT     "SECRET_AGENT"
@@ -53,7 +53,6 @@ s_fatal(const char *fmt, ...)
         buf[0] = '?';
         size = 1;
     }
-
     if (size > (size_t)ret)
         size = (size_t)ret;
 
@@ -122,7 +121,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
     struct termios old;
     tcgetattr(fd, &old);
 
-    struct termios new = old;;
+    struct termios new = old;
     new.c_lflag &= ~(ECHO | ECHONL);
 
     tcsetattr(fd, TCSAFLUSH, &new);
@@ -164,7 +163,7 @@ s_open_secret(int use_tty)
     int fd = open(s.path, O_RDWR);
 
     if (fd == -1) switch (errno) {
-        case ENOENT: s_fatal("No secret store: %s", s.path);
+        case ENOENT: s_fatal("No %s", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
 
@@ -174,7 +173,7 @@ s_open_secret(int use_tty)
     };
 
     if (fcntl(fd, F_SETLKW, &fl))
-        s_fatal("Unable to lock secret store: %s", s.path);
+        s_fatal("Unable to lock %s", s.path);
 
     uint8_t master[hydro_pwhash_MASTERKEYBYTES];
 
@@ -219,7 +218,6 @@ s_print_keys(int use_tty)
         s_write(1, s.x.msg, strnlen(s.x.msg, sizeof(s.x.msg)));
         s_write(1, "\n", 1);
     }
-
     close(fd);
     return 0;
 }
@@ -258,7 +256,6 @@ s_get_secret(int fd, const char *key, int create)
             return &s.x.msg[len + 1];
         }
     }
-
     if (!create)
         s_fatal("Secret %s not found", key);
 
@@ -505,7 +502,6 @@ s_agent(int argc, char **argv, void *data)
                 case ECHILD: s_exit(0);
                 default:     s_fatal("waitpid: %s", strerror(errno));
             }
-
             if ((ret == pid) &&
                 (WIFEXITED(status) || WIFSIGNALED(status)))
                 s_exit(0);

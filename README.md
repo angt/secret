@@ -4,59 +4,76 @@ Keep your little secrets, publicly.
 
 ## Features
 
- - Only one file to backup: `~/.secret`.
- - No configuration: get back your file and you're done.
- - URLs/logins/scopes are encrypted too.
- - Secret agent that allows shell completion (only `bash` for now).
- - Support many passwords (a visual hash might be required).
+`secret` is the simplest secret store you can think of:
+
+ - Requires only one file `~/.secret` that you can share publicly without fear.
+ - No configuration. Get back your file and you're done.
+ - Secret's name (hostname, mail, login, etc.) are also encrypted.
+ - Secret agent only trusts subprocesses. Not all user processes! How nice is that?
+ - Supports multiple passphrases. Not super user-friendly but nice to have.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
- - Small, simple and non obfuscated C code.
+ - Small, simple and non obfuscated C code. Well, I hope so :)
 
 ## Build and install
 
-    $ make install prefix=/usr
+    $ git clone https://github.com/angt/secret --recursive
+    $ cd secret
+    $ make
 
-Currently, bash completion is not installed. Download and source the file [argz.sh](argz/argz.sh) then:
+Then, as `root`:
 
+    # make install prefix=/usr
+
+Currently, bash completion is not installed.
+Download the file [argz.sh](argz/argz.sh) then:
+
+    $ . argz.sh
     $ complete -F _argz secret
+
+Completion for secrets is only available in a trusted shell. See below.
 
 ## Commands
 
-    $ secret
-    Available commands:
-        init      Init a secret storage for the user
-        list      List all secrets for a given passphrase
-        add       Add a new secret
-        show      Show an existing secret
-        change    Change an existing secret
-        agent     Run a process in a trusted zone
+| Command            | Description                                         |
+|--------------------|-----------------------------------------------------|
+| init               | Init a secret storage for the user at `~/.secret`.  |
+| list               | List all secrets for a given passphrase.            |
+| add KEY            | Add a new secret.                                   |
+| show KEY           | Show an existing secret.                            |
+| change KEY         | Change an existing secret.                          |
+| agent CMD [ARG]... | Run a process in a trusted zone. Typically a shell. |
 
 ## Examples
 
-Initialize secret:
+Initialize secret for the current user:
 
     $ secret init
 
-Add a new generated secret called 'test':
+Add a new generated secret:
 
     $ secret add test
     Password:
     Secret [random]:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
-Show secret 'test':
+Show the secret:
 
     $ secret show test
     Password:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
-Start a secret zone:
+Start `bash` in a trusted zone:
 
     $ secret agent bash
     Password:
 
-You can now manipulate your secrets easily and with completion:
+Now you can play with your little secrets, but only in this shell:
 
     $ ./secret show test
     9{6u0ue>5&W2+z#OR:`X<@-#
 
+Note that passphrase was not required.
+
+---
+For feature requests and bug reports,
+please create an [issue](https://github.com/angt/secret/issues).

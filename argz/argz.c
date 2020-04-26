@@ -58,7 +58,7 @@ argz_print(struct argz *z)
     for (int i = 0; z[i].name; i++) {
         if (!argz_is_available(z, i, NULL))
             continue;
-        printf("    %-*s    %s\n", len, z[i].name, z[i].help ?: "");
+        printf("    %-*s    %s\n", len, z[i].name, z[i].help ? z[i].help : "");
     }
 }
 

@@ -25,6 +25,15 @@
 struct {
     char path[1024];
     int pipe[2];
+    union {
+        struct {
+            uint8_t version;
+            uint8_t master[hydro_pwhash_MASTERKEYBYTES];
+            uint8_t opslimit[8];
+            // reserved
+        };
+        uint8_t buf[S_ENTRYSIZE];
+    } hdr;
     struct {
         uint8_t key[hydro_secretbox_KEYBYTES];
         char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES];
@@ -144,20 +153,20 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
     if (ret <= 0)
         s_exit(0);
 
-    ret--;
+    size_t len = ret - 1;
 
-    if (buf[ret] != '\n') {
+    if (buf[len] != '\n') {
         if (ret == size)
             s_fatal("Input too long!");
         s_exit(0);
     }
-    for (ssize_t i = 0; i < ret; i++) {
+    for (size_t i = 0; i < len; i++) {
         if (buf[i] < ' ')
             s_fatal("Invalid input!");
     }
 
-    memset(buf + ret, 0, size - ret);
-    return ret;
+    memset(buf + len, 0, size - len);
+    return len;
 }
 
 static int
@@ -166,7 +175,7 @@ s_open_secret(int use_tty)
     int fd = open(s.path, O_RDWR);
 
     if (fd == -1) switch (errno) {
-        case ENOENT: s_fatal("No %s", s.path);
+        case ENOENT: s_fatal("Secret store %s doesn't exist", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
 
@@ -178,10 +187,11 @@ s_open_secret(int use_tty)
     if (fcntl(fd, F_SETLKW, &fl))
         s_fatal("Unable to lock %s", s.path);
 
-    uint8_t master[hydro_pwhash_MASTERKEYBYTES];
+    if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)))
+        s_fatal("Unable to read %s", s.path);
 
-    if (s_read(fd, master, sizeof(master)))
-        s_fatal("Unable to parse %s", s.path);
+    if (s.hdr.version)
+        s_fatal("Bad version!");
 
     const char *agent = getenv(S_ENV_AGENT);
     int wfd = -1, rfd = -1;
@@ -203,7 +213,9 @@ s_open_secret(int use_tty)
 
     if (hydro_pwhash_deterministic(s.x.key, sizeof(s.x.key),
                                    (char *)pass, len,
-                                   s.ctx_master, master, 100000, 0, 1))
+                                   s.ctx_master, s.hdr.master,
+                                   load64_le(s.hdr.opslimit),
+                                   0, 1))
         s_fatal("Call of the Jedi...");
 
     return fd;
@@ -217,7 +229,7 @@ s_print_keys(int use_tty)
     while (!s_read(fd, s.enc, sizeof(s.enc))) {
         if (hydro_secretbox_decrypt(s.x.msg,
                                     s.enc, sizeof(s.enc), 0,
-                                    s.ctx_master, s.x.key))
+                                    s.ctx_secret, s.x.key))
             continue;
         s_write(1, s.x.msg, strnlen(s.x.msg, sizeof(s.x.msg)));
         s_write(1, "\n", 1);
@@ -299,9 +311,10 @@ s_init(int argc, char **argv, void *data)
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
 
-    uint8_t master[hydro_pwhash_MASTERKEYBYTES];
-    hydro_random_buf(master, sizeof(master));
-    s_write(fd, master, sizeof(master));
+    s.hdr.version = 0;
+    hydro_random_buf(s.hdr.master, sizeof(s.hdr.master));
+    store64_le(s.hdr.opslimit, 10000);
+    s_write(fd, s.hdr.buf, sizeof(s.hdr.buf));
     return 0;
 }
 
@@ -598,7 +611,8 @@ main(int argc, char **argv)
         {"show",   "Show an existing secret",         &s_show,   .alt = alts, .grp = 1},
         {"change", "Change an existing secret",       &s_change, .alt = altc, .grp = 1},
         {"agent",  "Run a process in a trusted zone", &s_agent,  .alt = altz, .grp = 1},
-        {}};
+        {NULL}
+    };
 
     if (argc == 1) {
         printf("Available commands:\n");

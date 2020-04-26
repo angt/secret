@@ -59,20 +59,20 @@ Initialize secret for the current user:
 Add a new randomly generated secret:
 
     $ secret add test
-    Password:
+    Passphrase:
     Secret [random]:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
 Show the secret:
 
     $ secret show test
-    Password:
+    Passphrase:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
 Start `bash` in a trusted zone:
 
     $ secret agent bash
-    Password:
+    Passphrase:
 
 Now, the passphrase is not requested and completion fully works!
 

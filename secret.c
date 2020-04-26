@@ -19,6 +19,7 @@
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_ENV_AGENT "SECRET_AGENT"
+#define S_ENV_STORE "SECRET_STORE"
 
 struct {
     char path[1024];
@@ -544,15 +545,24 @@ s_set_signals(void)
 static void
 s_set_path(void)
 {
-    char *home = getenv("HOME");
+    struct {
+        const char *fmt, *env;
+    } path[] = {
+        {"%s",    getenv(S_ENV_STORE)},
+        {"%s/.secret", getenv("HOME")},
+    };
 
-    if (!home)
-        s_fatal("$HOME less");
+    for (size_t i = 0; i < S_COUNT(path); i++) {
+        if (!path[i].env)
+            continue;
 
-    int ret = snprintf(s.path, sizeof(s.path), "%s/.secret", home);
+        int ret = snprintf(s.path, sizeof(s.path), path[i].fmt, path[i].env);
 
-    if (ret <= 0 || (size_t)ret >= sizeof(s.path))
-        s_fatal("Maybe your $HOME is too big...");
+        if (ret <= 0 || (size_t)ret >= sizeof(s.path))
+            s_fatal("Invalid path... Check $HOME or $" S_ENV_STORE);
+
+        break;
+    }
 }
 
 int

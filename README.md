@@ -46,13 +46,17 @@ Completion for secrets is only available in a trusted shell. See below.
 | change KEY         | Change an existing secret.                          |
 | agent CMD [ARG]... | Run a process in a trusted zone. Typically a shell. |
 
+You can use a different store using the `SECRET_STORE` environment variable:
+
+    $ env SECRET_STORE=<FILE> secret ...
+
 ## Examples
 
 Initialize secret for the current user:
 
     $ secret init
 
-Add a new generated secret:
+Add a new randomly generated secret:
 
     $ secret add test
     Password:
@@ -70,12 +74,7 @@ Start `bash` in a trusted zone:
     $ secret agent bash
     Password:
 
-Now you can play with your little secrets, but only in this shell:
-
-    $ ./secret show test
-    9{6u0ue>5&W2+z#OR:`X<@-#
-
-Note that passphrase was not required.
+Now, the passphrase is not requested and completion fully works!
 
 ---
 For feature requests and bug reports,

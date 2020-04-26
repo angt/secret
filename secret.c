@@ -129,6 +129,9 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
 
     struct termios new = old;
     new.c_lflag &= ~(ECHO | ECHONL);
+    new.c_lflag |= ICANON;
+    new.c_iflag &= ~(INLCR | IGNCR);
+    new.c_iflag |= ICRNL;
 
     tcsetattr(fd, TCSAFLUSH, &new);
     ssize_t ret = read(fd, buf, size - 1);

@@ -18,6 +18,7 @@
 #include "libhydrogen/hydrogen.c"
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
+#define S_ENTRYSIZE  512
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
@@ -26,9 +27,9 @@ struct {
     int pipe[2];
     struct {
         uint8_t key[hydro_secretbox_KEYBYTES];
-        char msg[1024];
+        char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES];
     } x;
-    uint8_t enc[hydro_secretbox_HEADERBYTES + 1024];
+    uint8_t enc[S_ENTRYSIZE];
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
     char ctx_secret[hydro_secretbox_CONTEXTBYTES];
 } s = {
@@ -134,7 +135,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
     new.c_iflag |= ICRNL;
 
     tcsetattr(fd, TCSAFLUSH, &new);
-    ssize_t ret = read(fd, buf, size - 1);
+    ssize_t ret = read(fd, buf, size);
     tcsetattr(fd, TCSAFLUSH, &old);
 
     s_write(fd, "\n", 1);
@@ -143,8 +144,17 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
     if (ret <= 0)
         s_exit(0);
 
-    for (ssize_t i = 0; i < ret; i++)
-        if (buf[i] < ' ') ret = i;
+    ret--;
+
+    if (buf[ret] != '\n') {
+        if (ret == size)
+            s_fatal("Input too long!");
+        s_exit(0);
+    }
+    for (ssize_t i = 0; i < ret; i++) {
+        if (buf[i] < ' ')
+            s_fatal("Invalid input!");
+    }
 
     memset(buf + ret, 0, size - ret);
     return ret;
@@ -186,7 +196,7 @@ s_open_secret(int use_tty)
         s_exit(0);
 
     unsigned char pass[128];
-    size_t len = s_input(pass, sizeof(pass), "Password: ");
+    size_t len = s_input(pass, sizeof(pass), "Passphrase: ");
 
     if (!len)
         s_exit(0);
@@ -350,7 +360,7 @@ s_add(int argc, char **argv, void *data)
     int fd = s_open_secret(1);
     s_get_secret(fd, argv[1], 1);
 
-    unsigned char secret[1024];
+    unsigned char secret[S_ENTRYSIZE];
     s_input_secret(secret, sizeof(secret));
 
     if (lseek(fd, 0, SEEK_END) == (off_t)-1)
@@ -372,7 +382,7 @@ s_change(int argc, char **argv, void *data)
     int fd = s_open_secret(1);
     s_get_secret(fd, argv[1], 0);
 
-    unsigned char secret[1024];
+    unsigned char secret[S_ENTRYSIZE];
     s_input_secret(secret, sizeof(secret));
 
     if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)

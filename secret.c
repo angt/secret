@@ -211,11 +211,15 @@ s_open_secret(int use_tty)
     if (!len)
         s_exit(0);
 
-    if (hydro_pwhash_deterministic(s.x.key, sizeof(s.x.key),
-                                   (char *)pass, len,
-                                   s.ctx_master, s.hdr.master,
-                                   load64_le(s.hdr.opslimit),
-                                   0, 1))
+    int r = hydro_pwhash_deterministic(
+                s.x.key, sizeof(s.x.key),
+                (char *)pass, len,
+                s.ctx_master, s.hdr.master,
+                load64_le(s.hdr.opslimit), 0, 1);
+
+    hydro_memzero(pass, sizeof(pass));
+
+    if (r)
         s_fatal("Call of the Jedi...");
 
     return fd;

@@ -85,7 +85,7 @@ s_fatal(const char *fmt, ...)
     s_exit(1);
 }
 
-static int
+static size_t
 s_read(int fd, void *data, size_t size)
 {
     size_t done = 0;
@@ -102,10 +102,10 @@ s_read(int fd, void *data, size_t size)
         }
         done += r;
     }
-    return done != size;
+    return done;
 }
 
-static int
+static size_t
 s_write(int fd, const void *data, size_t size)
 {
     size_t done = 0;
@@ -122,7 +122,7 @@ s_write(int fd, const void *data, size_t size)
         }
         done += r;
     }
-    return done != size;
+    return done;
 }
 
 static size_t
@@ -159,7 +159,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
     size_t len = ret - 1;
 
     if (buf[len] != '\n') {
-        if (ret == size)
+        if ((size_t)ret == size)
             s_fatal("Input too long!");
         s_exit(0);
     }
@@ -190,7 +190,7 @@ s_open_secret(int use_tty)
     if (fcntl(fd, F_SETLKW, &fl))
         s_fatal("Unable to lock %s", s.path);
 
-    if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)))
+    if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)) != sizeof(s.hdr.buf))
         s_fatal("Unable to read %s", s.path);
 
     if (s.hdr.version != S_VER_MAJOR)
@@ -201,8 +201,8 @@ s_open_secret(int use_tty)
 
     if (agent && sscanf(agent, "%d.%d", &wfd, &rfd) == 2 &&
         wfd >= 0 && rfd >= 0 &&
-        !s_write(wfd, "", 1) &&
-        !s_read(rfd, s.x.key, sizeof(s.x.key)))
+        s_write(wfd, "", 1) == 1 &&
+        s_read(rfd, s.x.key, sizeof(s.x.key)) == sizeof(s.x.key))
         return fd;
 
     if (!use_tty)
@@ -233,7 +233,7 @@ s_print_keys(int use_tty)
 {
     int fd = s_open_secret(use_tty);
 
-    while (!s_read(fd, s.enc, sizeof(s.enc))) {
+    while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(s.x.msg,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
@@ -268,7 +268,7 @@ s_get_secret(int fd, const char *key, int create)
     if (!len)
         s_fatal("Secret %s is malformed", key);
 
-    while (!s_read(fd, s.enc, sizeof(s.enc))) {
+    while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(s.x.msg,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
@@ -338,24 +338,6 @@ s_list(int argc, char **argv, void *data)
 }
 
 static void
-s_input_secret(unsigned char *buf, size_t size)
-{
-    if (s_input(buf, size, "Secret [random]: "))
-        return;
-
-    const size_t len = 24;
-
-    memset(buf, 0, size);
-    hydro_random_buf(buf, len);
-
-    for (unsigned i = 0; i < len; i++)
-        buf[i] = '!' + buf[i] % (1U + '~' - '!');
-
-    s_write(1, buf, len);
-    s_write(1, "\n", 1);
-}
-
-static void
 s_help_keys(int argc, char **argv, int print_keys)
 {
     if (!argz_help(argc, argv))
@@ -369,43 +351,47 @@ s_help_keys(int argc, char **argv, int print_keys)
     s_exit(0);
 }
 
+struct s_op {
+    int create;
+    int gen;
+};
+
 static int
-s_add(int argc, char **argv, void *data)
+s_do(int argc, char **argv, void *data)
 {
-    s_help_keys(argc, argv, 0);
+    struct s_op *op = (struct s_op *)data;
+
+    s_help_keys(argc, argv, !op->create);
 
     if (argc != 2)
         return argc;
 
     int fd = s_open_secret(1);
-    s_get_secret(fd, argv[1], 1);
+    s_get_secret(fd, argv[1], op->create);
 
     unsigned char secret[S_ENTRYSIZE];
-    s_input_secret(secret, sizeof(secret));
 
-    if (lseek(fd, 0, SEEK_END) == (off_t)-1)
-        s_fatal("seek: %s", strerror(errno));
+    if (op->gen) {
+        size_t len = 24;
+        hydro_memzero(secret, sizeof(secret));
+        hydro_random_buf(secret, len);
 
-    s_set_secret(fd, argv[1], secret);
-    close(fd);
-    return 0;
-}
+        for (unsigned i = 0; i < len; i++)
+            secret[i] = '!' + secret[i] % (1U + '~' - '!');
 
-static int
-s_change(int argc, char **argv, void *data)
-{
-    s_help_keys(argc, argv, 1);
+        s_write(1, secret, len);
+        s_write(1, "\n", 1);
+    } else {
+        if (!s_input(secret, sizeof(secret), "Secret: "))
+            s_exit(0);
+    }
 
-    if (argc != 2)
-        return argc;
+    struct { off_t off; int w; } sk[] = {
+        {                    0, SEEK_END},
+        {-(off_t)sizeof(s.enc), SEEK_CUR},
+    };
 
-    int fd = s_open_secret(1);
-    s_get_secret(fd, argv[1], 0);
-
-    unsigned char secret[S_ENTRYSIZE];
-    s_input_secret(secret, sizeof(secret));
-
-    if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
+    if (lseek(fd, sk[!op->create].off, sk[!op->create].w) == (off_t)-1)
         s_fatal("seek: %s", strerror(errno));
 
     s_set_secret(fd, argv[1], secret);
@@ -624,21 +610,24 @@ main(int argc, char **argv)
     s_set_path();
     s_set_signals();
 
-    const char *alta[] = {"set", "new", "gen", "insert", NULL};
-    const char *alts[] = {"get", "print", "echo", NULL};
-    const char *altc[] = {"replace", "update", "edit", "regen", NULL};
-    const char *altz[] = {"zone", NULL};
+    struct s_op s_new = {.create = 1, .gen = 1};
+    struct s_op s_set = {.create = 1, .gen = 0};
+    struct s_op s_rnw = {.create = 0, .gen = 1};
+    struct s_op s_rst = {.create = 0, .gen = 0};
 
+#define Z(...) .alt=(const char*[]){__VA_ARGS__, NULL}, .grp=1
     struct argz mainz[] = {
-        {"init",    "Init a secret storage for the user",             &s_init, .grp = 1},
-        {"list",    "List all secrets for a given passphrase",        &s_list, .grp = 1},
-        {"add",     "Add a new secret",                &s_add,    .alt = alta, .grp = 1},
-        {"show",    "Show an existing secret",         &s_show,   .alt = alts, .grp = 1},
-        {"change",  "Change an existing secret",       &s_change, .alt = altc, .grp = 1},
-        {"agent",   "Run a process in a trusted zone", &s_agent,  .alt = altz, .grp = 1},
-        {"version", "Show version",                    &s_version,             .grp = 1},
-        {NULL}
-    };
+        {"init",    "Init a secret storage for the user",      &s_init, Z(NULL)},
+        {"list",    "List all secrets for a given passphrase", &s_list, Z("ls")},
+        {"show",    "Print a secret",                &s_show, Z("get", "print")},
+        {"new",     "Generate a new secret",         &s_do, &s_new,    Z("gen")},
+        {"set",     "Set a new secret",              &s_do, &s_set,  Z("store")},
+        {"renew",   "Regenerate an existing secret", &s_do, &s_rnw,  Z("regen")},
+        {"reset",   "Update an existing secret",     &s_do, &s_rst, Z("update")},
+        {"agent",   "Run a process in a trusted zone",      &s_agent, Z("zone")},
+        {"version", "Show version",                         &s_version, Z(NULL)},
+        {0}};
+#undef Z
 
     if (argc == 1) {
         printf("Available commands:\n");

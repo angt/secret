@@ -37,16 +37,20 @@ Completion for secrets is only available in a trusted shell. See below.
 
 ## Commands
 
-| Command            | Description                                         |
-|--------------------|-----------------------------------------------------|
-| init               | Init a secret storage for the user at `~/.secret`.  |
-| list               | List all secrets for a given passphrase.            |
-| add KEY            | Add a new secret.                                   |
-| show KEY           | Show an existing secret.                            |
-| change KEY         | Change an existing secret.                          |
-| agent CMD [ARG]... | Run a process in a trusted zone. Typically a shell. |
+Available commands:
 
-You can use a different store using the `SECRET_STORE` environment variable:
+        init       Init a secret storage for the user
+        list       List all secrets for a given passphrase
+        show       Print a secret
+        new        Generate a new secret
+        set        Set a new secret
+        renew      Regenerate an existing secret
+        reset      Update an existing secret
+        agent      Run a process in a trusted zone
+        version    Show version
+
+All secrets are encrypted in the file `~/.secret`.
+You can use a different file with the `SECRET_STORE` environment variable:
 
     $ env SECRET_STORE=<FILE> secret ...
 
@@ -58,9 +62,8 @@ Initialize secret for the current user:
 
 Add a new randomly generated secret:
 
-    $ secret add test
+    $ secret new test
     Passphrase:
-    Secret [random]:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
 Show the secret:

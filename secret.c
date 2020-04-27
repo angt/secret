@@ -458,9 +458,8 @@ s_agent(int argc, char **argv, void *data)
         }
         return 0;
     }
-
-    if (argc <= 1)
-        return argc;
+    if (argz_help_asked(argc, argv))
+        return 0;
 
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
@@ -491,7 +490,13 @@ s_agent(int argc, char **argv, void *data)
         snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
         setenv(S_ENV_AGENT, tmp, 1);
 
-        execvp(argv[1], argv + 1);
+        if (argv[1]) {
+            execvp(argv[1], argv + 1);
+        } else {
+            char *sh = getenv("SHELL");
+            if (!sh) sh = "/bin/sh";
+            execl(sh, sh, (char *)NULL);
+        }
         s_fatal("%s: %s", argv[1], strerror(errno));
     }
 

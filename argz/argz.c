@@ -17,6 +17,16 @@ argz_help(int argc, char **argv)
 }
 
 static int
+argz_help_asked(int argc, char **argv)
+{
+    for (int i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "help"))
+            return 1;
+    }
+    return 0;
+}
+
+static int
 argz_cmp(struct argz *z, char *name)
 {
     if (!strcmp(z->name, name))

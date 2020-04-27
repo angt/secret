@@ -69,12 +69,15 @@ Show the secret:
     Passphrase:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
-Start `bash` in a trusted zone:
+Start a trusted zone:
 
-    $ secret agent bash
+    $ secret agent
     Passphrase:
 
 Now, the passphrase is not requested and completion fully works!
+
+If you don't use `bash` but still want completion,
+run `secret agent bash` or (much better) send a PR to add support for your shiny shell :)
 
 ---
 For feature requests and bug reports,

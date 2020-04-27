@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -18,7 +19,9 @@
 #include "libhydrogen/hydrogen.c"
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
-#define S_ENTRYSIZE  512
+#define S_VER_MAJOR  0U
+#define S_VER_MINOR  0U
+#define S_ENTRYSIZE  512U
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
@@ -190,8 +193,8 @@ s_open_secret(int use_tty)
     if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)))
         s_fatal("Unable to read %s", s.path);
 
-    if (s.hdr.version)
-        s_fatal("Bad version!");
+    if (s.hdr.version != S_VER_MAJOR)
+        s_fatal("Unkown version %" PRIu8, s.hdr.version);
 
     const char *agent = getenv(S_ENV_AGENT);
     int wfd = -1, rfd = -1;
@@ -600,6 +603,19 @@ s_set_path(void)
     }
 }
 
+static int
+s_version(int argc, char **argv, void *data)
+{
+    if (argz_help(argc, argv))
+        return 0;
+
+    if (argc != 1)
+        return argc;
+
+    printf("%u.%u\n", S_VER_MAJOR, S_VER_MINOR);
+    return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -614,12 +630,13 @@ main(int argc, char **argv)
     const char *altz[] = {"zone", NULL};
 
     struct argz mainz[] = {
-        {"init",   "Init a secret storage for the user",      &s_init,        .grp = 1},
-        {"list",   "List all secrets for a given passphrase", &s_list,        .grp = 1},
-        {"add",    "Add a new secret",                &s_add,    .alt = alta, .grp = 1},
-        {"show",   "Show an existing secret",         &s_show,   .alt = alts, .grp = 1},
-        {"change", "Change an existing secret",       &s_change, .alt = altc, .grp = 1},
-        {"agent",  "Run a process in a trusted zone", &s_agent,  .alt = altz, .grp = 1},
+        {"init",    "Init a secret storage for the user",             &s_init, .grp = 1},
+        {"list",    "List all secrets for a given passphrase",        &s_list, .grp = 1},
+        {"add",     "Add a new secret",                &s_add,    .alt = alta, .grp = 1},
+        {"show",    "Show an existing secret",         &s_show,   .alt = alts, .grp = 1},
+        {"change",  "Change an existing secret",       &s_change, .alt = altc, .grp = 1},
+        {"agent",   "Run a process in a trusted zone", &s_agent,  .alt = altz, .grp = 1},
+        {"version", "Show version",                    &s_version,             .grp = 1},
         {NULL}
     };
 

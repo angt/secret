@@ -276,6 +276,8 @@ s_get_secret(int fd, const char *key, int create)
         if (hydro_equal(s.x.msg, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
+            if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
+                s_fatal("seek: %s", strerror(errno));
             return &s.x.msg[len + 1];
         }
     }
@@ -385,14 +387,6 @@ s_do(int argc, char **argv, void *data)
         if (!s_input(secret, sizeof(secret), "Secret: "))
             s_exit(0);
     }
-
-    struct { off_t off; int w; } sk[] = {
-        {                    0, SEEK_END},
-        {-(off_t)sizeof(s.enc), SEEK_CUR},
-    };
-
-    if (lseek(fd, sk[!op->create].off, sk[!op->create].w) == (off_t)-1)
-        s_fatal("seek: %s", strerror(errno));
 
     s_set_secret(fd, argv[1], secret);
     close(fd);

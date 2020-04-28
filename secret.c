@@ -382,7 +382,7 @@ s_do(int argc, char **argv, void *data)
             secret[i] = '!' + secret[i] % (1U + '~' - '!');
 
         s_write(1, secret, len);
-        s_write(1, "\n", 1);
+        if (isatty(1)) s_write(1, "\n", 1);
     } else {
         if (!s_input(secret, sizeof(secret), "Secret: "))
             s_exit(0);

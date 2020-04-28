@@ -20,7 +20,7 @@
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_VER_MAJOR  0U
-#define S_VER_MINOR  0U
+#define S_VER_MINOR  1U
 #define S_ENTRYSIZE  512U
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"

@@ -72,6 +72,18 @@ Show the secret:
     Passphrase:
     9{6u0ue>5&W2+z#OR:`X<@-#
 
+Storing binary secrets is supported:
+
+    $ dd if=/dev/urandom bs=1 count=32 bs=1 2>/dev/null | secret set mykey
+    Passphrase:
+
+Then, use a pipe to get it:
+
+    $ secret show mykey | xxd
+    Passphrase:
+    00000000: 0ee9 cdb3 de0a 3e71 b623 726d 5d7e eb23  ......>q.#rm]~.#
+    00000010: 5b43 a458 3fb7 3b96 ea9b 6e47 d302 cae7  [C.X?.;...nG....
+
 Start a trusted zone:
 
     $ secret agent

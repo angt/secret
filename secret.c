@@ -39,7 +39,10 @@ struct {
     } hdr;
     struct {
         uint8_t key[hydro_secretbox_KEYBYTES];
-        char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES];
+        struct {
+            uint8_t slen[2];
+            char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
+        } entry;
     } x;
     uint8_t enc[S_ENTRYSIZE];
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
@@ -168,7 +171,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
             s_fatal("Invalid input!");
     }
 
-    memset(buf + len, 0, size - len);
+    hydro_memzero(buf + len, size - len);
     return len;
 }
 
@@ -234,11 +237,14 @@ s_print_keys(int use_tty)
     int fd = s_open_secret(use_tty);
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(s.x.msg,
+        if (hydro_secretbox_decrypt(&s.x.entry,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
-        s_write(1, s.x.msg, strnlen(s.x.msg, sizeof(s.x.msg)));
+        size_t len = strnlen(s.x.entry.msg, sizeof(s.x.entry.msg));
+        if (len >= sizeof(s.x.entry.msg))
+            s_fatal("Luckily I was paranoid...");
+        s_write(1, s.x.entry.msg, len);
         s_write(1, "\n", 1);
     }
     close(fd);
@@ -246,39 +252,36 @@ s_print_keys(int use_tty)
 }
 
 static size_t
-s_valid(const char *str)
+s_keylen(const char *str)
 {
     if (!str)
-        return 0;
+        s_fatal("Empty key!");
 
     for (size_t i = 0; i < 256; i++) {
         if (!str[i])
             return i;
-        if (str[i] < '!' || str[i] > '~')
-            return 0;
+        if (str[i] > 0 && str[i] < ' ')
+            s_fatal("Malformed key");
     }
-    return 0;
+    s_fatal("Key too big!");
 }
 
 static const char *
 s_get_secret(int fd, const char *key, int create)
 {
-    size_t len = s_valid(key);
-
-    if (!len)
-        s_fatal("Secret %s is malformed", key);
+    size_t len = s_keylen(key);
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(s.x.msg,
+        if (hydro_secretbox_decrypt(&s.x.entry,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
-        if (hydro_equal(s.x.msg, key, len + 1)) {
+        if (hydro_equal(s.x.entry.msg, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
             if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
                 s_fatal("seek: %s", strerror(errno));
-            return &s.x.msg[len + 1];
+            return &s.x.entry.msg[len + 1];
         }
     }
     if (!create)
@@ -288,17 +291,20 @@ s_get_secret(int fd, const char *key, int create)
 }
 
 static void
-s_set_secret(int fd, const char *id, const unsigned char *secret)
+s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
 {
-    memset(&s.x.msg, 0, sizeof(s.x.msg));
+    size_t len = s_keylen(key);
 
-    int ret = snprintf(s.x.msg, sizeof(s.x.msg), "%s%c%s", id, 0, secret);
-
-    if (ret <= 0 || (size_t)ret >= sizeof(s.x.msg))
+    if (len + slen + 1 > sizeof(s.x.entry.msg))
         s_fatal("Entry too big!");
 
+    hydro_memzero(&s.x.entry, sizeof(s.x.entry));
+    store16_le(s.x.entry.slen, slen);
+    memcpy(s.x.entry.msg, key, len);
+    memcpy(s.x.entry.msg + len + 1, secret, slen);
+
     hydro_secretbox_encrypt(s.enc,
-                            s.x.msg, sizeof(s.x.msg), 0,
+                            &s.x.entry, sizeof(s.x.entry), 0,
                             s.ctx_secret, s.x.key);
 
     s_write(fd, s.enc, sizeof(s.enc));
@@ -372,23 +378,25 @@ s_do(int argc, char **argv, void *data)
     s_get_secret(fd, argv[1], op->create);
 
     unsigned char secret[S_ENTRYSIZE];
+    size_t len = 25;
 
     if (op->generate) {
-        size_t len = 25;
         hydro_memzero(secret, sizeof(secret));
         hydro_random_buf(secret, len);
 
-        for (unsigned i = 0; i < len; i++)
+        for (size_t i = 0; i < len; i++)
             secret[i] = '!' + secret[i] % (1U + '~' - '!');
 
         s_write(1, secret, len);
         if (isatty(1)) s_write(1, "\n", 1);
     } else {
-        if (!s_input(secret, sizeof(secret), "Secret: "))
-            s_exit(0);
+        len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
+                        : s_read(0, secret, sizeof(secret));
     }
+    if (!len)
+        s_exit(0);
 
-    s_set_secret(fd, argv[1], secret);
+    s_set_secret(fd, argv[1], secret, len);
     close(fd);
     return 0;
 }
@@ -405,7 +413,7 @@ s_show(int argc, char **argv, void *data)
     const char *secret = s_get_secret(fd, argv[1], 0);
 
     if (secret) {
-        s_write(1, secret, strlen(secret));
+        s_write(1, secret, load16_le(s.x.entry.slen));
         if (isatty(1)) s_write(1, "\n", 1);
     }
     close(fd);

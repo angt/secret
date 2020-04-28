@@ -374,7 +374,7 @@ s_do(int argc, char **argv, void *data)
     unsigned char secret[S_ENTRYSIZE];
 
     if (op->generate) {
-        size_t len = 24;
+        size_t len = 25;
         hydro_memzero(secret, sizeof(secret));
         hydro_random_buf(secret, len);
 

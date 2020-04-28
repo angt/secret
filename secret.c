@@ -33,7 +33,6 @@ struct {
             uint8_t version;
             uint8_t master[hydro_pwhash_MASTERKEYBYTES];
             uint8_t opslimit[8];
-            // reserved
         };
         uint8_t buf[S_ENTRYSIZE];
     } hdr;
@@ -217,12 +216,10 @@ s_open_secret(int use_tty)
     if (!len)
         s_exit(0);
 
-    int r = hydro_pwhash_deterministic(
-                s.x.key, sizeof(s.x.key),
-                (char *)pass, len,
-                s.ctx_master, s.hdr.master,
-                load64_le(s.hdr.opslimit), 0, 1);
-
+    int r = hydro_pwhash_deterministic(s.x.key, sizeof(s.x.key),
+                                       (char *)pass, len,
+                                       s.ctx_master, s.hdr.master,
+                                       load64_le(s.hdr.opslimit), 0, 1);
     hydro_memzero(pass, sizeof(pass));
 
     if (r)

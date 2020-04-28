@@ -10,13 +10,13 @@
 
 #include "argz.h"
 
-static int
+int
 argz_help(int argc, char **argv)
 {
     return argc >= 2 && !strcmp(argv[1], "help");
 }
 
-static int
+int
 argz_help_asked(int argc, char **argv)
 {
     for (int i = 2; i < argc; i++) {
@@ -92,8 +92,8 @@ argz(int argc, char **argv, void *data)
                 return 0;
             }
             int ret = argc - 1;
-            if (z[i].f)
-                ret = z[i].f(ret, argv + argc - ret, z[i].data);
+            if (z[i].call)
+                ret = z[i].call(ret, argv + argc - ret, z[i].data);
             return argz(ret, argv + argc - ret, data);
         }
         fprintf(stderr, "Unknown: %s\n", argv[1]);

@@ -355,7 +355,7 @@ s_help_keys(int argc, char **argv, int print_keys)
 
 struct s_op {
     int create;
-    int gen;
+    int generate;
 };
 
 static int
@@ -373,7 +373,7 @@ s_do(int argc, char **argv, void *data)
 
     unsigned char secret[S_ENTRYSIZE];
 
-    if (op->gen) {
+    if (op->generate) {
         size_t len = 24;
         hydro_memzero(secret, sizeof(secret));
         hydro_random_buf(secret, len);
@@ -604,24 +604,22 @@ main(int argc, char **argv)
     s_set_path();
     s_set_signals();
 
-    struct s_op s_new = {.create = 1, .gen = 1};
-    struct s_op s_set = {.create = 1, .gen = 0};
-    struct s_op s_rnw = {.create = 0, .gen = 1};
-    struct s_op s_rst = {.create = 0, .gen = 0};
+    struct s_op s_new = {.create = 1, .generate = 1};
+    struct s_op s_set = {.create = 1, .generate = 0};
+    struct s_op s_rnw = {.create = 0, .generate = 1};
+    struct s_op s_rst = {.create = 0, .generate = 0};
 
-#define Z(...) .alt=(const char*[]){__VA_ARGS__, NULL}, .grp=1
     struct argz mainz[] = {
-        {"init",    "Init a secret storage for the user",      &s_init, Z(NULL)},
-        {"list",    "List all secrets for a given passphrase", &s_list, Z("ls")},
-        {"show",    "Print a secret",                &s_show, Z("get", "print")},
-        {"new",     "Generate a new secret",         &s_do, &s_new,    Z("gen")},
-        {"set",     "Set a new secret",              &s_do, &s_set,  Z("store")},
-        {"renew",   "Regenerate an existing secret", &s_do, &s_rnw,  Z("regen")},
-        {"reset",   "Update an existing secret",     &s_do, &s_rst, Z("update")},
-        {"agent",   "Run a process in a trusted zone",      &s_agent, Z("zone")},
-        {"version", "Show version",                         &s_version, Z(NULL)},
+        {"init",    "Initialize secret for the current user",      &s_init, .grp = 1},
+        {"list",    "List all secrets for a given passphrase",     &s_list, .grp = 1},
+        {"show",    "Print a secret",                  &s_show,    NULL,    .grp = 1},
+        {"new",     "Generate a new secret",           &s_do,      &s_new,  .grp = 1},
+        {"set",     "Set a new secret",                &s_do,      &s_set,  .grp = 1},
+        {"renew",   "Regenerate an existing secret",   &s_do,      &s_rnw,  .grp = 1},
+        {"reset",   "Update an existing secret",       &s_do,      &s_rst,  .grp = 1},
+        {"agent",   "Run a process in a trusted zone", &s_agent,   NULL,    .grp = 1},
+        {"version", "Show version",                    &s_version, NULL,    .grp = 1},
         {0}};
-#undef Z
 
     if (argc == 1) {
         printf("Available commands:\n");

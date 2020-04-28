@@ -39,7 +39,7 @@ Completion for secrets is only available in a trusted shell. See below.
 
 Available commands:
 
-        init       Init a secret storage for the user
+        init       Initialize secret for the current user
         list       List all secrets for a given passphrase
         show       Print a secret
         new        Generate a new secret

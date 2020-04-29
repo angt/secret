@@ -257,7 +257,7 @@ s_keylen(const char *str)
     for (size_t i = 0; i < 256; i++) {
         if (!str[i])
             return i;
-        if (str[i] > 0 && str[i] < ' ')
+        if (str[i] > 0 && str[i] <= ' ')
             s_fatal("Malformed key");
     }
     s_fatal("Key too big!");

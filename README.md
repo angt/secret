@@ -10,6 +10,7 @@ Keep your little secrets, publicly.
  - No configuration. Get back your file and you're done.
  - Secret's name (hostname, mail, login, etc.) are also encrypted.
  - Secret agent only trusts subprocesses. Not all user processes! How nice is that?
+ - Unstored secrets! Derived from a simple key and a passphrase.
  - Supports multiple passphrases. Not super user-friendly but nice to have.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)
@@ -46,6 +47,7 @@ Available commands:
         set        Set a new secret
         renew      Regenerate an existing secret
         reset      Update an existing secret
+        pass       Derivate a new secret
         agent      Run a process in a trusted zone
         version    Show version
 
@@ -64,13 +66,19 @@ Add a new randomly generated secret:
 
     $ secret new test
     Passphrase:
-    9{6u0ue>5&W2+z#OR:`X<@-#
+    ^>f.8%]_zoN^jSi0CO_{(yYY5
 
 Show the secret:
 
     $ secret show test
     Passphrase:
-    9{6u0ue>5&W2+z#OR:`X<@-#
+    ^>f.8%]_zoN^jSi0CO_{(yYY5
+
+Derive a deterministic (a.k.a. unstored) secret:
+
+    $ secret pass me@domain.com
+    Passphrase:
+    a`4$B2mJ=|"HD?b4:/y"?wOaQ
 
 Storing binary secrets is supported:
 

@@ -22,6 +22,7 @@
 #define S_VER_MAJOR  0U
 #define S_VER_MINOR  1U
 #define S_ENTRYSIZE  512U
+#define S_PWDGENLEN  25U
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
@@ -46,10 +47,12 @@ struct {
     uint8_t enc[S_ENTRYSIZE];
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
     char ctx_secret[hydro_secretbox_CONTEXTBYTES];
+    char ctx_passwd[hydro_pwhash_CONTEXTBYTES];
 } s = {
     .pipe = {-1, -1},
     .ctx_master = "MASTER",
     .ctx_secret = "SECRET",
+    .ctx_passwd = "PASSWD",
 };
 
 _Noreturn static void
@@ -85,6 +88,13 @@ s_fatal(const char *fmt, ...)
 
     writev(2, iov, 3);
     s_exit(1);
+}
+
+_Noreturn static void
+s_oops(const int line)
+{
+    s_fatal("Oops at line %i", line);
+    s_exit(2);
 }
 
 static size_t
@@ -223,7 +233,7 @@ s_open_secret(int use_tty)
     hydro_memzero(pass, sizeof(pass));
 
     if (r)
-        s_fatal("Call of the Jedi...");
+        s_oops(__LINE__);
 
     return fd;
 }
@@ -240,7 +250,7 @@ s_print_keys(int use_tty)
             continue;
         size_t len = strnlen(s.x.entry.msg, sizeof(s.x.entry.msg));
         if (len >= sizeof(s.x.entry.msg))
-            s_fatal("Luckily I was paranoid...");
+            s_oops(__LINE__);
         s_write(1, s.x.entry.msg, len);
         s_write(1, "\n", 1);
     }
@@ -356,6 +366,16 @@ s_help_keys(int argc, char **argv, int print_keys)
     s_exit(0);
 }
 
+static void
+s_normalize_and_show(unsigned char *buf, size_t size)
+{
+    for (size_t i = 0; i < size; i++)
+        buf[i] = '!' + buf[i] % (1U + '~' - '!');
+
+    s_write(1, buf, size);
+    if (isatty(1)) s_write(1, "\n", 1);
+}
+
 struct s_op {
     int create;
     int generate;
@@ -375,17 +395,12 @@ s_do(int argc, char **argv, void *data)
     s_get_secret(fd, argv[1], op->create);
 
     unsigned char secret[S_ENTRYSIZE];
-    size_t len = 25;
+    size_t len = S_PWDGENLEN;
 
     if (op->generate) {
         hydro_memzero(secret, sizeof(secret));
         hydro_random_buf(secret, len);
-
-        for (size_t i = 0; i < len; i++)
-            secret[i] = '!' + secret[i] % (1U + '~' - '!');
-
-        s_write(1, secret, len);
-        if (isatty(1)) s_write(1, "\n", 1);
+        s_normalize_and_show(secret, len);
     } else {
         len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
                         : s_read(0, secret, sizeof(secret));
@@ -414,6 +429,28 @@ s_show(int argc, char **argv, void *data)
         if (isatty(1)) s_write(1, "\n", 1);
     }
     close(fd);
+    return 0;
+}
+
+static int
+s_pass(int argc, char **argv, void *data)
+{
+    s_help_keys(argc, argv, 0);
+
+    if (argc != 2)
+        return argc;
+
+    close(s_open_secret(1));
+
+    unsigned char secret[S_PWDGENLEN];
+    int r = hydro_pwhash_deterministic(secret, sizeof(secret),
+                                       argv[1], strlen(argv[1]),
+                                       s.ctx_passwd, s.x.key,
+                                       load64_le(s.hdr.opslimit), 0, 1);
+    if (r)
+        s_oops(__LINE__);
+
+    s_normalize_and_show(secret, sizeof(secret));
     return 0;
 }
 
@@ -622,6 +659,7 @@ main(int argc, char **argv)
         {"set",     "Set a new secret",                &s_do,      &s_set,  .grp = 1},
         {"renew",   "Regenerate an existing secret",   &s_do,      &s_rnw,  .grp = 1},
         {"reset",   "Update an existing secret",       &s_do,      &s_rst,  .grp = 1},
+        {"pass",    "Derivate a new secret",           &s_pass,    NULL,    .grp = 1},
         {"agent",   "Run a process in a trusted zone", &s_agent,   NULL,    .grp = 1},
         {"version", "Show version",                    &s_version, NULL,    .grp = 1},
         {0}};

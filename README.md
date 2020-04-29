@@ -80,6 +80,12 @@ Derive a deterministic (a.k.a. unstored) secret:
     Passphrase:
     a`4$B2mJ=|"HD?b4:/y"?wOaQ
 
+Subkeys are also supported, this allows to update your secret in a clean way:
+
+    $ secret pass me@domain.com 2020
+    Passphrase:
+    F"1j;-X]t.Pi>.xf5hG,]dUMz
+
 Storing binary secrets is supported:
 
     $ dd if=/dev/urandom bs=1 count=32 bs=1 2>/dev/null | secret set mykey

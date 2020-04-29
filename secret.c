@@ -435,22 +435,34 @@ s_show(int argc, char **argv, void *data)
 static int
 s_pass(int argc, char **argv, void *data)
 {
-    s_help_keys(argc, argv, 0);
+    if (argz_help(argc, argv)) {
+        if (isatty(1))
+            printf("Usage: %s KEY [SUBKEY...]\n", argv[0]);
+        return 0;
+    }
+    if (argz_help_asked(argc, argv))
+        return 0;
 
-    if (argc != 2)
+    if (argc < 2)
         return argc;
 
     close(s_open_secret(1));
 
-    unsigned char secret[S_PWDGENLEN];
-    int r = hydro_pwhash_deterministic(secret, sizeof(secret),
-                                       argv[1], strlen(argv[1]),
-                                       s.ctx_passwd, s.x.key,
-                                       load64_le(s.hdr.opslimit), 0, 1);
-    if (r)
-        s_oops(__LINE__);
+    uint8_t buf[hydro_pwhash_MASTERKEYBYTES];
+    uint8_t key[hydro_pwhash_MASTERKEYBYTES];
 
-    s_normalize_and_show(secret, sizeof(secret));
+    memcpy(key, s.x.key, sizeof(key));
+
+    for (int i = 1; i < argc; i++) {
+        int r = hydro_pwhash_deterministic(buf, sizeof(buf),
+                                           argv[i], strlen(argv[i]),
+                                           s.ctx_passwd, key,
+                                           load64_le(s.hdr.opslimit), 0, 1);
+        memcpy(key, buf, sizeof(key));
+        if (r)
+            s_oops(__LINE__);
+    }
+    s_normalize_and_show(buf, S_PWDGENLEN);
     return 0;
 }
 

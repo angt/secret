@@ -305,10 +305,13 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
     if (len + slen + 1 > sizeof(s.x.entry.msg))
         s_fatal("Entry too big!");
 
-    hydro_memzero(&s.x.entry, sizeof(s.x.entry));
     store16_le(s.x.entry.slen, slen);
-    memcpy(s.x.entry.msg, key, len);
-    memcpy(s.x.entry.msg + len + 1, secret, slen);
+
+    size_t t = 0;
+    memcpy(s.x.entry.msg, key, len);           t += len;
+    s.x.entry.msg[t] = 0;                      t += 1;
+    memcpy(s.x.entry.msg + t, secret, slen);   t += slen;
+    hydro_random_buf(s.x.entry.msg + t, sizeof(s.x.entry.msg) - t);
 
     hydro_secretbox_encrypt(s.enc,
                             &s.x.entry, sizeof(s.x.entry), 0,
@@ -462,6 +465,7 @@ s_pass(int argc, char **argv, void *data)
         if (r)
             s_oops(__LINE__);
     }
+
     s_normalize_and_show(buf, S_PWDGENLEN);
     return 0;
 }

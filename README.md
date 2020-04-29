@@ -10,7 +10,7 @@ Keep your little secrets, publicly.
  - No configuration. Get back your file and you're done.
  - Secret's name (hostname, mail, login, etc.) are also encrypted.
  - Secret agent only trusts subprocesses. Not all user processes! How nice is that?
- - Unstored secrets! Derived from a simple key and a passphrase.
+ - Supports unstored secrets. Derived from a simple key and a passphrase.
  - Supports multiple passphrases. Not super user-friendly but nice to have.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)

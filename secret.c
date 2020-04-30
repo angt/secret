@@ -23,6 +23,7 @@
 #define S_VER_MINOR  2U
 #define S_ENTRYSIZE  512U
 #define S_PWDGENLEN  25U
+#define S_KEYLENMAX  255U
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
@@ -261,16 +262,16 @@ s_print_keys(int use_tty)
 static size_t
 s_keylen(const char *str)
 {
-    if (!str)
-        s_fatal("Empty key!");
+    if (!str || !str[0])
+        s_fatal("Empty keys are not allowed");
 
-    for (size_t i = 0; i < 256; i++) {
+    for (size_t i = 0; i <= S_KEYLENMAX; i++) {
         if (!str[i])
             return i;
         if (str[i] > 0 && str[i] <= ' ')
-            s_fatal("Malformed key");
+            s_fatal("Special characaters are not allowed in keys");
     }
-    s_fatal("Key too big!");
+    s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
 }
 
 static const char *
@@ -458,7 +459,7 @@ s_pass(int argc, char **argv, void *data)
 
     for (int i = 1; i < argc; i++) {
         int r = hydro_pwhash_deterministic(buf, sizeof(buf),
-                                           argv[i], strlen(argv[i]),
+                                           argv[i], s_keylen(argv[i]),
                                            s.ctx_passwd, key,
                                            load64_le(s.hdr.opslimit), 0, 1);
         memcpy(key, buf, sizeof(key));

@@ -1,6 +1,11 @@
 # secret
 
-Keep your little secrets, publicly.
+Keep your little secrets.
+
+## Compatibility
+
+`secret` should work on a wide variety of architectures and POSIX systems.
+It was successfully tested on Linux, OpenBSD, FreeBSD and MacOS.
 
 ## Features
 
@@ -8,9 +13,10 @@ Keep your little secrets, publicly.
 
  - Requires only one file `~/.secret` that you can share publicly without fear.
  - No configuration. Get back your file and you're done.
- - Secret's name (hostname, mail, login, etc.) are also encrypted.
- - Secret agent only trusts subprocesses. Not all user processes! How nice is that?
- - Supports unstored secrets. Derived from a simple key and a passphrase.
+ - Secret names (usually hostname, mail, login, etc.) are also encrypted.
+ - A secret agent that only trusts subprocesses. Not all the processes of the same user!
+ - Secret names completion (on bash only) once the agent is activated.
+ - Supports unstored secrets. Derived from some simple keys and a passphrase.
  - Supports multiple passphrases. Not super user-friendly but nice to have.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)

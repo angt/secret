@@ -13,13 +13,7 @@
 int
 argz_help(int argc, char **argv)
 {
-    return argc >= 2 && !strcmp(argv[1], "help");
-}
-
-int
-argz_help_asked(int argc, char **argv)
-{
-    for (int i = 2; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "help"))
             return 1;
     }
@@ -77,7 +71,7 @@ argz(int argc, char **argv, void *data)
 {
     struct argz *z = (struct argz *)data;
 
-    if (argz_help(argc, argv)) {
+    if (argz_help(argc > 2 ? 2 : argc, argv)) {
         argz_print(z);
         return 0;
     }
@@ -91,6 +85,7 @@ argz(int argc, char **argv, void *data)
                 fprintf(stderr, "cannot call %s because of %s\n", z[i].name, z[k].name);
                 return 0;
             }
+            z[i].set = 1;
             int ret = argc - 1;
             if (z[i].call)
                 ret = z[i].call(ret, argv + argc - ret, z[i].data);

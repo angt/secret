@@ -10,7 +10,6 @@ struct argz {
     int set;
 };
 
-int  argz_help       (int, char **);
-int  argz_help_asked (int, char **);
-void argz_print      (struct argz *);
-int  argz            (int, char **, void *);
+int  argz_help  (int, char **);
+void argz_print (struct argz *);
+int  argz       (int, char **, void *);

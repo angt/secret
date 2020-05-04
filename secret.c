@@ -239,7 +239,7 @@ s_open_secret(int use_tty)
     return fd;
 }
 
-static int
+static void
 s_print_keys(int use_tty)
 {
     int fd = s_open_secret(use_tty);
@@ -256,7 +256,6 @@ s_print_keys(int use_tty)
         s_write(1, "\n", 1);
     }
     close(fd);
-    return 0;
 }
 
 static size_t
@@ -324,11 +323,11 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
 static int
 s_init(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv))
+    if (argz_help(argc, argv) || argc != 1) {
+        if (isatty(1))
+            printf("Usage: %s\n", argv[0]);
         return 0;
-
-    if (argc != 1)
-        return argc;
+    }
 
     int fd = open(s.path, O_RDWR | O_CREAT | O_EXCL, 0600);
 
@@ -347,27 +346,13 @@ s_init(int argc, char **argv, void *data)
 static int
 s_list(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv))
+    if (argz_help(argc, argv) || argc != 1) {
+        if (isatty(1))
+            printf("Usage: %s\n", argv[0]);
         return 0;
-
-    if (argc == 1)
-        return s_print_keys(1);
-
-    return argc;
-}
-
-static void
-s_help_keys(int argc, char **argv, int print_keys)
-{
-    if (!argz_help(argc, argv))
-        return;
-
-    if (isatty(1)) {
-        printf("Usage: %s KEY\n", argv[0]);
-    } else if (print_keys) {
-        s_print_keys(0);
     }
-    s_exit(0);
+    s_print_keys(1);
+    return 0;
 }
 
 static void
@@ -380,39 +365,48 @@ s_normalize_and_show(unsigned char *buf, size_t size)
     if (isatty(1)) s_write(1, "\n", 1);
 }
 
-struct s_op {
-    int create;
-    int generate;
+enum s_op {
+    s_op_generate = 1,
+    s_op_create   = 2,
 };
 
 static int
 s_do(int argc, char **argv, void *data)
 {
-    struct s_op *op = (struct s_op *)data;
+    enum s_op op;
+    memcpy(&op, data, sizeof(enum s_op));
 
-    s_help_keys(argc, argv, !op->create);
-
-    if (argc != 2)
-        return argc;
+    if (argz_help(argc, argv) || (argc != 2 && (op || argc != 3))) {
+        if (isatty(1)) {
+            printf("Usage: %s KEY %s\n", argv[0], op ? "" : "NEWKEY");
+        } else if (argc == 2 && !(op & s_op_create)) {
+            s_print_keys(0);
+        }
+        return 0;
+    }
 
     int fd = s_open_secret(1);
-    s_get_secret(fd, argv[1], op->create);
+    const char *old = s_get_secret(fd, argv[1], op & s_op_create);
 
     unsigned char secret[S_ENTRYSIZE];
     size_t len = S_PWDGENLEN;
 
-    if (op->generate) {
+    if (op & s_op_generate) {
         hydro_memzero(secret, sizeof(secret));
         hydro_random_buf(secret, len);
         s_normalize_and_show(secret, len);
     } else {
         len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
                         : s_read(0, secret, sizeof(secret));
+        if (!len && argc == 3) {
+            len = load16_le(s.x.entry.slen);
+            memcpy(secret, old, len);
+        }
     }
     if (!len)
         s_exit(0);
 
-    s_set_secret(fd, argv[1], secret, len);
+    s_set_secret(fd, argv[argc - 1], secret, len);
     close(fd);
     return 0;
 }
@@ -420,10 +414,14 @@ s_do(int argc, char **argv, void *data)
 static int
 s_show(int argc, char **argv, void *data)
 {
-    s_help_keys(argc, argv, 1);
-
-    if (argc != 2)
-        return argc;
+    if (argz_help(argc, argv) || argc != 2) {
+        if (isatty(1)) {
+            printf("Usage: %s KEY\n", argv[0]);
+        } else if (argc == 2) {
+            s_print_keys(0);
+        }
+        return 0;
+    }
 
     int fd = s_open_secret(1);
     const char *secret = s_get_secret(fd, argv[1], 0);
@@ -439,16 +437,11 @@ s_show(int argc, char **argv, void *data)
 static int
 s_pass(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv)) {
+    if (argz_help(argc, argv) || argc < 2) {
         if (isatty(1))
             printf("Usage: %s KEY [SUBKEY...]\n", argv[0]);
         return 0;
     }
-    if (argz_help_asked(argc, argv))
-        return 0;
-
-    if (argc < 2)
-        return argc;
 
     close(s_open_secret(1));
 
@@ -495,14 +488,11 @@ s_agent(int argc, char **argv, void *data)
     if (argz_help(argc, argv)) {
         if (isatty(1)) {
             printf("Usage: %s CMD [ARG...]\n", argv[0]);
-        } else {
+        } else if (argc == 2) {
             printf("CMD\n");
         }
         return 0;
     }
-    if (argz_help_asked(argc, argv))
-        return 0;
-
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
 
@@ -645,12 +635,11 @@ s_set_path(void)
 static int
 s_version(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv))
+    if (argz_help(argc, argv) || argc != 1) {
+        if (isatty(1))
+            printf("Usage: %s\n", argv[0]);
         return 0;
-
-    if (argc != 1)
-        return argc;
-
+    }
     printf("%u.%u\n", S_VER_MAJOR, S_VER_MINOR);
     return 0;
 }
@@ -663,10 +652,10 @@ main(int argc, char **argv)
     s_set_path();
     s_set_signals();
 
-    struct s_op s_new = {.create = 1, .generate = 1};
-    struct s_op s_set = {.create = 1, .generate = 0};
-    struct s_op s_rnw = {.create = 0, .generate = 1};
-    struct s_op s_rst = {.create = 0, .generate = 0};
+    enum s_op s_new = s_op_create | s_op_generate;
+    enum s_op s_set = s_op_create;
+    enum s_op s_rnw = s_op_generate;
+    enum s_op s_rst = 0;
 
     struct argz mainz[] = {
         {"init",    "Initialize secret for the current user",      &s_init, .grp = 1},

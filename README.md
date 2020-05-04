@@ -1,27 +1,26 @@
 # secret
 
-Keep your little secrets.
-
-## Compatibility
-
-`secret` should work on a wide variety of architectures and POSIX systems.
-It was successfully tested on Linux, OpenBSD, FreeBSD and MacOS.
+A simple and tiny tool that will help you keep your little secrets.
 
 ## Features
 
-`secret` is the simplest secret store you can think of:
+`secret` is the simplest secret store you can think of.
+But it does have some interesting features:
 
  - Requires only one file `~/.secret` that you can share publicly without fear.
  - No configuration. Get back your file and you're done.
  - Secret names (usually hostname, mail, login, etc.) are also encrypted.
  - A secret agent that only trusts subprocesses. Not all the processes of the same user!
- - Secret names completion (on bash only) once the agent is activated.
+ - Secret names completion is available after calling the secret agent.
  - Supports unstored secrets. Derived from some simple keys and a passphrase.
  - Supports multiple passphrases. Not super user-friendly but nice to have.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)
 
 ## Build and install
+
+This should work on a wide variety of architectures and POSIX systems.
+It was successfully tested on Linux, OpenBSD, FreeBSD and MacOS.
 
 Clone the repository recursively:
 
@@ -34,11 +33,13 @@ Then, run as `root`:
 
 As usual, you can customize the destination with `DESTDIR` and `prefix`.
 
-Currently, bash completion is not installed.
-Download the file [argz.sh](argz/argz.sh) then:
+If you want the tab completion in `bash`, you have to do it manually for now.
+Luckily, it's super easy! Just download the file [argz.sh](argz/argz.sh) and then:
 
     $ . argz.sh
     $ complete -F _argz secret
+
+It's exactly the same for `zsh` if you have enabled `bashcompinit'.
 
 Completion for secrets is only available in a trusted shell. See below.
 

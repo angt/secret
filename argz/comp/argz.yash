@@ -1,0 +1,11 @@
+function completion/argz {
+	typeset opts
+	opts="$($WORDS help 2>/dev/null | awk '{print $1}')"
+	case "$opts" in
+		'') ;;
+		CMD) complete -c;;
+		DIR) complete -d;;
+		FILE) complete -f;;
+		*) complete -- $opts
+	esac
+}

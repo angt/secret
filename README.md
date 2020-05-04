@@ -34,9 +34,9 @@ Then, run as `root`:
 As usual, you can customize the destination with `DESTDIR` and `prefix`.
 
 If you want the tab completion in `bash`, you have to do it manually for now.
-Luckily, it's super easy! Just download the file [argz.sh](argz/argz.sh) and then:
+Luckily, it's super easy! Just download the file [argz.bash](argz/comp/argz.bash) and then:
 
-    $ . argz.sh
+    $ . argz.bash
     $ complete -F _argz secret
 
 It's exactly the same for `zsh` if you have enabled `bashcompinit'.

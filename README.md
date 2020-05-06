@@ -13,7 +13,7 @@ But it does have some interesting features:
  - A secret agent that only trusts subprocesses. Not all the processes of the same user!
  - Secret names completion is available after calling the secret agent.
  - Supports unstored secrets. Derived from some simple keys and a passphrase.
- - Supports multiple passphrases. Not super user-friendly but nice to have.
+ - Supports multiple passphrases. A confirmation is requested for each new passphrase.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)
 

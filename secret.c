@@ -49,6 +49,7 @@ struct {
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
     char ctx_secret[hydro_secretbox_CONTEXTBYTES];
     char ctx_passwd[hydro_pwhash_CONTEXTBYTES];
+    int known_key;
 } s = {
     .pipe = {-1, -1},
     .ctx_master = "MASTER",
@@ -180,9 +181,25 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
         if (buf[i] < ' ')
             s_fatal("Invalid input!");
     }
-
     hydro_memzero(buf + len, size - len);
     return len;
+}
+
+static void
+s_ask_pass(void *buf, size_t size, const char *prompt)
+{
+    unsigned char pass[128];
+    size_t len = s_input(pass, sizeof(pass), prompt);
+
+    if (!len)
+        s_exit(0);
+
+    int r = hydro_pwhash_deterministic(buf, size,
+                                       (char *)pass, len,
+                                       s.ctx_master, s.hdr.master,
+                                       load64_le(s.hdr.opslimit), 0, 1);
+    hydro_memzero(pass, sizeof(pass));
+    if (r) s_oops(__LINE__);
 }
 
 static int
@@ -221,41 +238,8 @@ s_open_secret(int use_tty)
     if (!use_tty)
         s_exit(0);
 
-    unsigned char pass[128];
-    size_t len = s_input(pass, sizeof(pass), "Passphrase: ");
-
-    if (!len)
-        s_exit(0);
-
-    int r = hydro_pwhash_deterministic(s.x.key, sizeof(s.x.key),
-                                       (char *)pass, len,
-                                       s.ctx_master, s.hdr.master,
-                                       load64_le(s.hdr.opslimit), 0, 1);
-    hydro_memzero(pass, sizeof(pass));
-
-    if (r)
-        s_oops(__LINE__);
-
+    s_ask_pass(s.x.key, sizeof(s.x.key), "Passphrase: ");
     return fd;
-}
-
-static void
-s_print_keys(int use_tty)
-{
-    int fd = s_open_secret(use_tty);
-
-    while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(&s.x.entry,
-                                    s.enc, sizeof(s.enc), 0,
-                                    s.ctx_secret, s.x.key))
-            continue;
-        size_t len = strnlen(s.x.entry.msg, sizeof(s.x.entry.msg));
-        if (len >= sizeof(s.x.entry.msg))
-            s_oops(__LINE__);
-        s_write(1, s.x.entry.msg, len);
-        s_write(1, "\n", 1);
-    }
-    close(fd);
 }
 
 static size_t
@@ -271,6 +255,22 @@ s_keylen(const char *str)
             s_fatal("Special characaters are not allowed in keys");
     }
     s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
+}
+
+static void
+s_print_keys(int use_tty)
+{
+    int fd = s_open_secret(use_tty);
+
+    while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
+        if (hydro_secretbox_decrypt(&s.x.entry,
+                                    s.enc, sizeof(s.enc), 0,
+                                    s.ctx_secret, s.x.key))
+            continue;
+        s_write(1, s.x.entry.msg, s_keylen(s.x.entry.msg));
+        s_write(1, "\n", 1);
+    }
+    close(fd);
 }
 
 static const char *
@@ -290,6 +290,7 @@ s_get_secret(int fd, const char *key, int create)
                 s_fatal("seek: %s", strerror(errno));
             return &s.x.entry.msg[len + 1];
         }
+        s.known_key = 1;
     }
     if (!create)
         s_fatal("Secret %s not found", key);
@@ -388,6 +389,13 @@ s_do(int argc, char **argv, void *data)
     int fd = s_open_secret(1);
     const char *old = s_get_secret(fd, argv[1], op & s_op_create);
 
+    if (!old && !s.known_key) {
+        char check[sizeof(s.x.key)];
+        s_ask_pass(check, sizeof(check), "Never used? Retype to confirm: ");
+        if (!hydro_equal(s.x.key, check, sizeof(check)))
+            s_fatal("Passphrases don't match!");
+    }
+
     unsigned char secret[S_ENTRYSIZE];
     size_t len = S_PWDGENLEN;
 
@@ -398,7 +406,7 @@ s_do(int argc, char **argv, void *data)
     } else {
         len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
                         : s_read(0, secret, sizeof(secret));
-        if (!len && argc == 3) {
+        if (!len && old && argc == 3) {
             len = load16_le(s.x.entry.slen);
             memcpy(secret, old, len);
         }
@@ -442,7 +450,6 @@ s_pass(int argc, char **argv, void *data)
             printf("Usage: %s KEY [SUBKEY...]\n", argv[0]);
         return 0;
     }
-
     close(s_open_secret(1));
 
     uint8_t buf[hydro_pwhash_MASTERKEYBYTES];
@@ -456,10 +463,8 @@ s_pass(int argc, char **argv, void *data)
                                            s.ctx_passwd, key,
                                            load64_le(s.hdr.opslimit), 0, 1);
         memcpy(key, buf, sizeof(key));
-        if (r)
-            s_oops(__LINE__);
+        if (r) s_oops(__LINE__);
     }
-
     s_normalize_and_show(buf, S_PWDGENLEN);
     return 0;
 }
@@ -627,7 +632,6 @@ s_set_path(void)
 
         if (ret <= 0 || (size_t)ret >= sizeof(s.path))
             s_fatal("Invalid path... Check $HOME or $" S_ENV_STORE);
-
         break;
     }
 }

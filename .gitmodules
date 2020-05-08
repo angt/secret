@@ -1,3 +1,7 @@
 [submodule "libhydrogen"]
 	path = libhydrogen
 	url = https://github.com/jedisct1/libhydrogen
+[submodule "argz"]
+	path = argz
+	url = https://github.com/angt/argz
+	branch = dev

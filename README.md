@@ -33,13 +33,28 @@ Then, run as `root`:
 
 As usual, you can customize the destination with `DESTDIR` and `prefix`.
 
-If you want the tab completion in `bash`, you have to do it manually for now.
-Luckily, it's super easy! Just download the file [argz.bash](argz/comp/argz.bash) and then:
+### Tab completion
 
-    $ . argz.bash
-    $ complete -F _argz secret
+Tab completion works with `bash` and `yash` (`zsh` is also supported if you enable `bashcompinit`).
+Unfortunately, it doesn't work out of the box, you have to setup it manually.
+Luckily, it's super easy!
 
-It's exactly the same for `zsh` if you have enabled `bashcompinit'.
+Download the file corresponding to your shell:
+ - [argz.bash](https://github.com/angt/argz/blob/dev/comp/argz.bash).
+ - [argz.yash](https://github.com/angt/argz/blob/dev/comp/argz.yash).
+
+Then you can add these lines in your `.bashrc` (or `.zshrc`):
+
+    . argz.bash
+    complete -F _argz secret
+
+Or in your `.yashrc`:
+
+    . argz.yash
+
+    function completion/secret {
+        command -f completion//reexecute argz
+    }
 
 Completion for secrets is only available in a trusted shell. See below.
 

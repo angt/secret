@@ -27,7 +27,7 @@
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
-struct {
+static struct {
     char path[1024];
     int pipe[2];
     union {

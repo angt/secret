@@ -329,6 +329,8 @@ s_init(int argc, char **argv, void *data)
             printf("Usage: %s\n", argv[0]);
         return 0;
     }
+    if (getenv(S_ENV_AGENT))
+        s_fatal("Agent is running...");
 
     int fd = open(s.path, O_RDWR | O_CREAT | O_EXCL, 0600);
 

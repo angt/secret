@@ -8,7 +8,7 @@ A simple and tiny tool that will help you keep your little secrets.
 But it does have some interesting features:
 
  - Requires only one file `~/.secret` that you can share publicly without fear.
- - No configuration. Get back your file and you're done.
+ - No configuration. No directory. Get back your file and you're done.
  - Secret names (usually hostname, mail, login, etc.) are also encrypted.
  - A secret agent that only trusts subprocesses. Not all the processes of the same user!
  - Secret names completion is available after calling the secret agent.
@@ -16,6 +16,16 @@ But it does have some interesting features:
  - Supports multiple passphrases. A confirmation is requested for each new passphrase.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)
+
+## Security
+
+The main goal is to have `secret` working on all architectures and to make it very simple to audit.
+
+Luckily, permutation-based cryptography has arrived and makes it possible to achieve this goal with very little code.
+In 2020, using a bloated library full of CVEs will not have been reasonable considering the major advances in this field.
+
+Only one cryptographic building blocks is used, the [Gimli](https://gimli.cr.yp.to/gimli-20170627.pdf) permutation.
+All cryptographic operations are derived from this permutation and implemented in the [libhydrogen](https://libhydrogen.org/) library.
 
 ## Build and install
 

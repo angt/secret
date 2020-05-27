@@ -24,7 +24,7 @@ The main goal is to have `secret` working on all architectures and to make it ve
 Luckily, permutation-based cryptography has arrived and makes it possible to achieve this goal with very little code.
 In 2020, using a bloated library full of CVEs will not have been reasonable considering the major advances in this field.
 
-Only one cryptographic building blocks is used, the [Gimli](https://gimli.cr.yp.to/gimli-20170627.pdf) permutation.
+Only one cryptographic building block is used, the [Gimli](https://gimli.cr.yp.to/gimli-20170627.pdf) permutation.
 All cryptographic operations are derived from this permutation and implemented in the [libhydrogen](https://libhydrogen.org/) library.
 
 ## Build and install
@@ -79,7 +79,7 @@ Available commands:
     set        Set a new secret
     renew      Regenerate an existing secret
     update     Update an existing secret
-    pass       Derivate a new secret
+    pass       Print a deterministic secret
     agent      Run a process in a trusted zone
     version    Show version
 

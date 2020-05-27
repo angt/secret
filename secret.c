@@ -671,7 +671,7 @@ main(int argc, char **argv)
         {"set",     "Set a new secret",                &s_do,      &s_set,  .grp = 1},
         {"renew",   "Regenerate an existing secret",   &s_do,      &s_rnw,  .grp = 1},
         {"update",  "Update an existing secret",       &s_do,      &s_rst,  .grp = 1},
-        {"pass",    "Derivate a new secret",           &s_pass,    NULL,    .grp = 1},
+        {"pass",    "Print a deterministic secret",    &s_pass,    NULL,    .grp = 1},
         {"agent",   "Run a process in a trusted zone", &s_agent,   NULL,    .grp = 1},
         {"version", "Show version",                    &s_version, NULL,    .grp = 1},
         {0}};

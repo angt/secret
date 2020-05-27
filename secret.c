@@ -391,7 +391,9 @@ s_do(int argc, char **argv, void *data)
 
     if (!old && !s.known_key) {
         char check[sizeof(s.x.key)];
-        s_ask_pass(check, sizeof(check), "Never used? Retype to confirm: ");
+        s_ask_pass(check, sizeof(check),
+                   "It's the first time you use this passphrase.\n"
+                   "Please, retype it to confirm: ");
         if (!hydro_equal(s.x.key, check, sizeof(check)))
             s_fatal("Passphrases don't match!");
     }

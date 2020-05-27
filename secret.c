@@ -358,14 +358,19 @@ s_list(int argc, char **argv, void *data)
     return 0;
 }
 
-static void
-s_normalize_and_show(unsigned char *buf, size_t size)
+static size_t
+s_normalize_and_show(unsigned char *buf, size_t size, size_t want)
 {
-    for (size_t i = 0; i < size; i++)
-        buf[i] = '!' + buf[i] % (1U + '~' - '!');
+    const unsigned n = 1U + '~' - '!';
+    unsigned k = 0;
 
-    s_write(1, buf, size);
+    for (size_t i = 0; i < size && k < want; i++) {
+        if (buf[i] < 2 * n)
+            buf[k++] = '!' + buf[i] % n;
+    }
+    s_write(1, buf, k);
     if (isatty(1)) s_write(1, "\n", 1);
+    return k;
 }
 
 enum s_op {
@@ -401,12 +406,11 @@ s_do(int argc, char **argv, void *data)
     }
 
     unsigned char secret[S_ENTRYSIZE];
-    size_t len = S_PWDGENLEN;
+    size_t len = 0;
 
     if (op & s_op_generate) {
-        hydro_memzero(secret, sizeof(secret));
-        hydro_random_buf(secret, len);
-        s_normalize_and_show(secret, len);
+        hydro_random_buf(secret, sizeof(secret));
+        len = s_normalize_and_show(secret, sizeof(secret), S_PWDGENLEN);
     } else {
         len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
                         : s_read(0, secret, sizeof(secret));
@@ -469,7 +473,7 @@ s_pass(int argc, char **argv, void *data)
         memcpy(key, buf, sizeof(key));
         if (r) s_oops(__LINE__);
     }
-    s_normalize_and_show(buf, S_PWDGENLEN);
+    s_normalize_and_show(buf, sizeof(buf), S_PWDGENLEN);
     return 0;
 }
 

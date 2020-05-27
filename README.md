@@ -72,16 +72,16 @@ Completion for secrets is only available in a trusted shell. See below.
 
 Available commands:
 
-        init       Initialize secret for the current user
-        list       List all secrets for a given passphrase
-        show       Print a secret
-        new        Generate a new secret
-        set        Set a new secret
-        renew      Regenerate an existing secret
-        reset      Update an existing secret
-        pass       Derivate a new secret
-        agent      Run a process in a trusted zone
-        version    Show version
+    init       Initialize secret for the current user
+    list       List all secrets for a given passphrase
+    show       Print a secret
+    new        Generate a new random secret
+    set        Set a new secret
+    renew      Regenerate an existing secret
+    update     Update an existing secret
+    pass       Derivate a new secret
+    agent      Run a process in a trusted zone
+    version    Show version
 
 All secrets are encrypted in the file `~/.secret`.
 You can use a different file with the `SECRET_STORE` environment variable:

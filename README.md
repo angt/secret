@@ -120,7 +120,7 @@ Subkeys are also supported, this allows to update your secret in a clean way:
 
 Storing binary secrets is supported:
 
-    $ dd if=/dev/urandom bs=1 count=32 bs=1 2>/dev/null | secret set mykey
+    $ dd if=/dev/urandom bs=1 count=32 2>/dev/null | secret set mykey
     Passphrase:
 
 Then, use a pipe to get it:

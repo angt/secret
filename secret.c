@@ -362,7 +362,7 @@ static size_t
 s_normalize_and_show(unsigned char *buf, size_t size, size_t want)
 {
     const unsigned n = 1U + '~' - '!';
-    unsigned k = 0;
+    size_t k = 0;
 
     for (size_t i = 0; i < size && k < want; i++) {
         if (buf[i] < 2 * n)

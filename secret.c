@@ -49,7 +49,7 @@ static struct {
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
     char ctx_secret[hydro_secretbox_CONTEXTBYTES];
     char ctx_passwd[hydro_pwhash_CONTEXTBYTES];
-    int known_key;
+    int pass_ok;
 } s = {
     .pipe = {-1, -1},
     .ctx_master = "MASTER",
@@ -203,22 +203,14 @@ s_ask_pass(void *buf, size_t size, const char *prompt)
 }
 
 static int
-s_open_secret(int use_tty)
+s_open_secret(int use_tty, int flags)
 {
-    int fd = open(s.path, O_RDWR);
+    int fd = open(s.path, flags);
 
     if (fd == -1) switch (errno) {
         case ENOENT: s_fatal("Secret store %s doesn't exist", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
-
-    struct flock fl = {
-        .l_type = F_WRLCK,
-        .l_whence = SEEK_SET,
-    };
-
-    if (fcntl(fd, F_SETLKW, &fl))
-        s_fatal("Unable to lock %s", s.path);
 
     if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)) != sizeof(s.hdr.buf))
         s_fatal("Unable to read %s", s.path);
@@ -226,15 +218,25 @@ s_open_secret(int use_tty)
     if (s.hdr.version != S_VER_MAJOR)
         s_fatal("Unkown version %" PRIu8, s.hdr.version);
 
+    if (flags == O_RDWR) {
+        struct flock fl = {
+            .l_type = F_WRLCK,
+            .l_whence = SEEK_SET,
+        };
+        if (fcntl(fd, F_SETLKW, &fl))
+            s_fatal("Unable to lock %s", s.path);
+    }
+
     const char *agent = getenv(S_ENV_AGENT);
     int wfd = -1, rfd = -1;
 
     if (agent && sscanf(agent, "%d.%d", &wfd, &rfd) == 2 &&
         wfd >= 0 && rfd >= 0 &&
         s_write(wfd, "", 1) == 1 &&
-        s_read(rfd, s.x.key, sizeof(s.x.key)) == sizeof(s.x.key))
+        s_read(rfd, s.x.key, sizeof(s.x.key)) == sizeof(s.x.key)) {
+        s.pass_ok = 1;
         return fd;
-
+    }
     if (!use_tty)
         s_exit(0);
 
@@ -260,7 +262,7 @@ s_keylen(const char *str)
 static void
 s_print_keys(int use_tty)
 {
-    int fd = s_open_secret(use_tty);
+    int fd = s_open_secret(use_tty, O_RDONLY);
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(&s.x.entry,
@@ -276,25 +278,37 @@ s_print_keys(int use_tty)
 static const char *
 s_get_secret(int fd, const char *key, int create)
 {
-    size_t len = s_keylen(key);
+    size_t len = key ? s_keylen(key) : 0;
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(&s.x.entry,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
-        if (hydro_equal(s.x.entry.msg, key, len + 1)) {
+        if (key && hydro_equal(s.x.entry.msg, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
             if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
                 s_fatal("seek: %s", strerror(errno));
             return &s.x.entry.msg[len + 1];
         }
-        s.known_key = 1;
+        s.pass_ok = 1;
     }
-    if (!create)
+    if (key && !create)
         s_fatal("Secret %s not found", key);
+    if (s.pass_ok)
+        return NULL;
 
+    char check[sizeof(s.x.key)];
+
+    s_ask_pass(check, sizeof(check),
+            "It's the first time you use this passphrase.\n"
+            "Please, retype it to confirm: ");
+
+    if (!hydro_equal(s.x.key, check, sizeof(check)))
+        s_fatal("Passphrases don't match!");
+
+    s.pass_ok = 1;
     return NULL;
 }
 
@@ -393,18 +407,8 @@ s_do(int argc, char **argv, void *data)
         return 0;
     }
 
-    int fd = s_open_secret(1);
+    int fd = s_open_secret(1, O_RDWR);
     const char *old = s_get_secret(fd, argv[1], op & s_op_create);
-
-    if (!old && !s.known_key) {
-        char check[sizeof(s.x.key)];
-        s_ask_pass(check, sizeof(check),
-                   "It's the first time you use this passphrase.\n"
-                   "Please, retype it to confirm: ");
-        if (!hydro_equal(s.x.key, check, sizeof(check)))
-            s_fatal("Passphrases don't match!");
-    }
-
     unsigned char secret[S_ENTRYSIZE];
     size_t len = 0;
 
@@ -439,7 +443,7 @@ s_show(int argc, char **argv, void *data)
         return 0;
     }
 
-    int fd = s_open_secret(1);
+    int fd = s_open_secret(1, O_RDONLY);
     const char *secret = s_get_secret(fd, argv[1], 0);
 
     if (secret) {
@@ -458,7 +462,7 @@ s_pass(int argc, char **argv, void *data)
             printf("Usage: %s KEY [SUBKEY...]\n", argv[0]);
         return 0;
     }
-    close(s_open_secret(1));
+    close(s_open_secret(1, O_RDONLY));
 
     uint8_t buf[hydro_pwhash_MASTERKEYBYTES];
     uint8_t key[hydro_pwhash_MASTERKEYBYTES];
@@ -509,7 +513,9 @@ s_agent(int argc, char **argv, void *data)
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
 
-    close(s_open_secret(1));
+    int fd = s_open_secret(1, O_RDONLY);
+    s_get_secret(fd, NULL, 0);
+    close(fd);
 
     int rfd[2], wfd[2];
 

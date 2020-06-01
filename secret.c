@@ -148,6 +148,13 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
     if (fd == -1)
         s_fatal("%s: %s", tty, strerror(errno));
 
+    struct flock fl = {
+        .l_type = F_WRLCK,
+        .l_whence = SEEK_SET,
+    };
+    if (fcntl(fd, F_SETLKW, &fl))
+        s_fatal("Unable to lock %s", tty);
+
     if (prompt)
         s_write(fd, prompt, strlen(prompt));
 

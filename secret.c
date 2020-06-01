@@ -218,15 +218,6 @@ s_open_secret(int use_tty, int flags)
     if (s.hdr.version != S_VER_MAJOR)
         s_fatal("Unkown version %" PRIu8, s.hdr.version);
 
-    if (flags == O_RDWR) {
-        struct flock fl = {
-            .l_type = F_WRLCK,
-            .l_whence = SEEK_SET,
-        };
-        if (fcntl(fd, F_SETLKW, &fl))
-            s_fatal("Unable to lock %s", s.path);
-    }
-
     const char *agent = getenv(S_ENV_AGENT);
     int wfd = -1, rfd = -1;
 
@@ -331,6 +322,13 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
     hydro_secretbox_encrypt(s.enc,
                             &s.x.entry, sizeof(s.x.entry), 0,
                             s.ctx_secret, s.x.key);
+    struct flock fl = {
+        .l_type = F_WRLCK,
+        .l_whence = SEEK_CUR,
+        .l_len = (off_t)sizeof(s.enc),
+    };
+    if (fcntl(fd, F_SETLK, &fl))
+        s_fatal("Unable to lock %s", s.path);
 
     s_write(fd, s.enc, sizeof(s.enc));
 }

@@ -87,7 +87,6 @@ s_fatal(const char *fmt, ...)
         {hdr, sizeof(hdr) - 1},
         {buf, size}, {"\n", 1},
     };
-
     writev(2, iov, 3);
     s_exit(1);
 }
@@ -218,7 +217,6 @@ s_open_secret(int use_tty, int flags)
         case ENOENT: s_fatal("Secret store %s doesn't exist", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
-
     if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)) != sizeof(s.hdr.buf))
         s_fatal("Unable to read %s", s.path);
 
@@ -298,7 +296,6 @@ s_get_secret(int fd, const char *key, int create)
         return NULL;
 
     char check[sizeof(s.x.key)];
-
     s_ask_pass(check, sizeof(check),
             "It's the first time you use this passphrase.\n"
             "Please, retype it to confirm: ");
@@ -325,9 +322,7 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
     s.x.entry.msg[t] = 0;                      t += 1;
     memcpy(s.x.entry.msg + t, secret, slen);   t += slen;
     hydro_random_buf(s.x.entry.msg + t, sizeof(s.x.entry.msg) - t);
-
-    hydro_secretbox_encrypt(s.enc,
-                            &s.x.entry, sizeof(s.x.entry), 0,
+    hydro_secretbox_encrypt(s.enc, &s.x.entry, sizeof(s.x.entry), 0,
                             s.ctx_secret, s.x.key);
     struct flock fl = {
         .l_type = F_WRLCK,
@@ -357,7 +352,6 @@ s_init(int argc, char **argv, void *data)
         case EEXIST: s_fatal("Secret store %s already exists", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
-
     s.hdr.version = 0;
     hydro_random_buf(s.hdr.master, sizeof(s.hdr.master));
     store64_le(s.hdr.opslimit, 10000);
@@ -411,7 +405,6 @@ s_do(int argc, char **argv, void *data)
         }
         return 0;
     }
-
     int fd = s_open_secret(1, O_RDWR);
     const char *old = s_get_secret(fd, argv[1], op & s_op_create);
     unsigned char secret[S_ENTRYSIZE];
@@ -447,7 +440,6 @@ s_show(int argc, char **argv, void *data)
         }
         return 0;
     }
-
     int fd = s_open_secret(1, O_RDONLY);
     const char *secret = s_get_secret(fd, argv[1], 0);
 
@@ -471,7 +463,6 @@ s_pass(int argc, char **argv, void *data)
 
     uint8_t buf[hydro_pwhash_MASTERKEYBYTES];
     uint8_t key[hydro_pwhash_MASTERKEYBYTES];
-
     memcpy(key, s.x.key, sizeof(key));
 
     for (int i = 1; i < argc; i++) {
@@ -523,7 +514,6 @@ s_agent(int argc, char **argv, void *data)
     close(fd);
 
     int rfd[2], wfd[2];
-
     if (pipe(rfd) || pipe(wfd) || pipe(s.pipe))
         s_fatal("pipe: %s", strerror(errno));
 
@@ -555,21 +545,18 @@ s_agent(int argc, char **argv, void *data)
         }
         s_fatal("%s: %s", argv[1], strerror(errno));
     }
-
     close(rfd[1]); close(wfd[0]);
 
     struct pollfd fds[] = {
         {.fd = s.pipe[0], .events = POLLIN},
         {.fd = rfd[0],    .events = POLLIN},
     };
-
     while (1) {
         if (poll(fds, 1 + (fds[1].fd >= 0), -1) == -1) {
             if (errno == EINTR)
                 continue;
             s_fatal("poll: %s", strerror(errno));
         }
-
         if (fds[0].revents & POLLIN) {
             char tmp;
             read(fds[0].fd, &tmp, 1);
@@ -587,7 +574,6 @@ s_agent(int argc, char **argv, void *data)
                 (WIFEXITED(status) || WIFSIGNALED(status)))
                 s_exit(0);
         }
-
         if (fds[1].revents & (POLLERR | POLLHUP)) {
             close(rfd[0]); close(wfd[1]);
             fds[1].fd = -1;
@@ -624,11 +610,9 @@ s_set_signals(void)
         SIGALRM, SIGTERM, SIGTSTP,
         SIGTTIN, SIGCHLD,
     };
-
     struct sigaction sa = {
         .sa_handler = s_handler,
     };
-
     for (size_t i = 0; i < S_COUNT(sig); i++)
         sigaction(sig[i], &sa, NULL);
 }
@@ -642,7 +626,6 @@ s_set_path(void)
         {"%s",    getenv(S_ENV_STORE)},
         {"%s/.secret", getenv("HOME")},
     };
-
     for (size_t i = 0; i < S_COUNT(path); i++) {
         if (!path[i].env)
             continue;

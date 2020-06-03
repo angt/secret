@@ -256,7 +256,7 @@ s_keylen(const char *str)
 }
 
 static void
-s_print_keys(int use_tty)
+s_print_keys(const char *needle, int use_tty)
 {
     int fd = s_open_secret(use_tty, O_RDONLY);
 
@@ -265,7 +265,10 @@ s_print_keys(int use_tty)
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
-        s_write(1, s.x.entry.msg, s_keylen(s.x.entry.msg));
+        size_t len = s_keylen(s.x.entry.msg);
+        if (needle && !strcasestr(s.x.entry.msg, needle))
+            continue;
+        s_write(1, s.x.entry.msg, len);
         s_write(1, "\n", 1);
     }
     close(fd);
@@ -362,12 +365,12 @@ s_init(int argc, char **argv, void *data)
 static int
 s_list(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv) || argc != 1) {
+    if (argz_help(argc, argv) || argc > 2) {
         if (isatty(1))
-            printf("Usage: %s\n", argv[0]);
+            printf("Usage: %s [NEEDLE]\n", argv[0]);
         return 0;
     }
-    s_print_keys(1);
+    s_print_keys(argv[1], 1);
     return 0;
 }
 
@@ -401,7 +404,7 @@ s_do(int argc, char **argv, void *data)
         if (isatty(1)) {
             printf("Usage: %s KEY %s\n", argv[0], op ? "" : "NEWKEY");
         } else if (argc == 2 && !(op & s_op_create)) {
-            s_print_keys(0);
+            s_print_keys(NULL, 0);
         }
         return 0;
     }
@@ -436,7 +439,7 @@ s_show(int argc, char **argv, void *data)
         if (isatty(1)) {
             printf("Usage: %s KEY\n", argv[0]);
         } else if (argc == 2) {
-            s_print_keys(0);
+            s_print_keys(NULL, 0);
         }
         return 0;
     }

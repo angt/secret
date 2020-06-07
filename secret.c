@@ -109,9 +109,9 @@ s_read(int fd, void *data, size_t size)
         if (r == 0)
             break;
         if (r == (ssize_t)-1) switch (errno) {
-            case EAGAIN: if (!poll(&pfd, 1, 200)) return 1; /* FALLTHRU */
+            case EAGAIN: if (poll(&pfd, 1, 200) < 1) return done; /* FALLTHRU */
             case EINTR:  continue;
-            default:     s_fatal("read: %s", strerror(errno));
+            default:     return done;
         }
         done += r;
     }
@@ -129,9 +129,9 @@ s_write(int fd, const void *data, size_t size)
         if (r == 0)
             break;
         if (r == (ssize_t)-1) switch (errno) {
-            case EAGAIN: if (!poll(&pfd, 1, 200)) return 1; /* FALLTHRU */
+            case EAGAIN: if (poll(&pfd, 1, 200) < 1) return done; /* FALLTHRU */
             case EINTR:  continue;
-            default:     s_fatal("write: %s", strerror(errno));
+            default:     return done;
         }
         done += r;
     }
@@ -209,6 +209,24 @@ s_ask_pass(void *buf, size_t size, const char *prompt)
 }
 
 static int
+s_ask_agent(void)
+{
+    const char *agent = getenv(S_ENV_AGENT);
+    int wfd = -1, rfd = -1;
+
+    if (!agent || sscanf(agent, "%d.%d", &wfd, &rfd) != 2 || wfd < 0 || rfd < 0)
+        return 1;
+
+    s_write(wfd, "", 1);
+
+    if (s_read(rfd, s.x.key, sizeof(s.x.key)) != sizeof(s.x.key))
+        return 1;
+
+    s.pass_ok = 1;
+    return 0;
+}
+
+static int
 s_open_secret(int use_tty, int flags)
 {
     int fd = open(s.path, flags);
@@ -223,16 +241,9 @@ s_open_secret(int use_tty, int flags)
     if (s.hdr.version != S_VER_MAJOR)
         s_fatal("Unkown version %" PRIu8, s.hdr.version);
 
-    const char *agent = getenv(S_ENV_AGENT);
-    int wfd = -1, rfd = -1;
-
-    if (agent && sscanf(agent, "%d.%d", &wfd, &rfd) == 2 &&
-        wfd >= 0 && rfd >= 0 &&
-        s_write(wfd, "", 1) == 1 &&
-        s_read(rfd, s.x.key, sizeof(s.x.key)) == sizeof(s.x.key)) {
-        s.pass_ok = 1;
+    if (!s_ask_agent())
         return fd;
-    }
+
     if (!use_tty)
         s_exit(0);
 

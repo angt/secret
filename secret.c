@@ -311,7 +311,7 @@ s_get_secret(int fd, const char *key, int create)
 
     char check[sizeof(s.x.key)];
     s_ask_pass(check, sizeof(check),
-            "It's the first time you use this passphrase.\n"
+            "No secrets stored with this passphrase.\n"
             "Please, retype it to confirm: ");
 
     if (!hydro_equal(s.x.key, check, sizeof(check)))
@@ -473,7 +473,9 @@ s_pass(int argc, char **argv, void *data)
             printf("Usage: %s KEY [SUBKEY...]\n", argv[0]);
         return 0;
     }
-    close(s_open_secret(1, O_RDONLY));
+    int fd = s_open_secret(1, O_RDONLY);
+    s_get_secret(fd, NULL, 0);
+    close(fd);
 
     uint8_t buf[hydro_pwhash_MASTERKEYBYTES];
     uint8_t key[hydro_pwhash_MASTERKEYBYTES];

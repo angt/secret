@@ -140,6 +140,8 @@ Now, the passphrase is not requested and completion fully works!
 If you don't use `bash` but still want completion,
 run `secret agent bash` or (much better) send a PR to add support for your shiny shell :)
 
+Finally, if you want to generate TOTP tokens go check out [totp](https://github.com/angt/totp).
+
 ---
 For feature requests and bug reports,
 please create an [issue](https://github.com/angt/secret/issues).

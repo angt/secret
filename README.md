@@ -141,6 +141,7 @@ If you don't use `bash` but still want completion,
 run `secret agent bash` or (much better) send a PR to add support for your shiny shell :)
 
 Finally, if you want to generate TOTP tokens go check out [totp](https://github.com/angt/totp).
+You can also use the [totp branch](https://github.com/angt/secret/tree/totp).
 
 ---
 For feature requests and bug reports,

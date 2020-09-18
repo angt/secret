@@ -14,6 +14,7 @@ But it does have some interesting features:
  - Secret names completion is available after calling the secret agent.
  - Supports unstored secrets. Derived from some simple keys and a passphrase.
  - Supports multiple passphrases. A confirmation is requested for each new passphrase.
+ - Supports TOTP natively. The name must contain the word `totp`.
  - Depends only on the [libhydrogen](https://libhydrogen.org/) library.
  - Small, simple and non obfuscated C code. Well, I hope so :)
 
@@ -126,6 +127,17 @@ Show the secret:
     Passphrase:
     ^>f.8%]_zoN^jSi0CO_{(yYY5
 
+Add a TOTP token:
+
+    $ echo -n JBSWY3DPEHPK3PXP | base32 -d | secret set test/totp
+    Passphrase:
+
+Show the TOTP, like a normal secret:
+
+    $ secret show test/totp
+    Passphrase:
+    $ 123456
+
 Derive a deterministic (a.k.a. unstored) secret:
 
     $ secret pass me@domain.com
@@ -159,9 +171,6 @@ Now, the passphrase is not requested and completion fully works!
 
 If you don't use `bash` but still want completion,
 run `secret agent bash` or (much better) send a PR to add support for your shiny shell :)
-
-Finally, if you want to generate TOTP tokens go check out [totp](https://github.com/angt/totp).
-You can also use the [totp branch](https://github.com/angt/secret/tree/totp).
 
 ---
 For feature requests and bug reports,

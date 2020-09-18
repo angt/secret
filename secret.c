@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
@@ -444,6 +445,87 @@ s_do(int argc, char **argv, void *data)
     return 0;
 }
 
+static void
+s_sha1_process(const uint8_t *buf, uint32_t x[5])
+{
+    uint32_t w[80];
+    uint32_t a = x[0], b = x[1], c = x[2], d = x[3], e = x[4];
+
+    for (int i = 0; i < 16; i++)
+        w[i] = load32_be(&buf[i << 2]);
+
+    for (int i = 16; i < 80; i++)
+        w[i] = ROTL32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+
+    for (int i = 0; i < 80; i++) {
+        uint32_t t = ROTL32(a, 5) + e + w[i];
+             if (i < 20) t += 0x5A827999 + ((b & c) | ((~b) & d));
+        else if (i < 40) t += 0x6ED9EBA1 + (b ^ c ^ d);
+        else if (i < 60) t += 0x8F1BBCDC + ((b & c) | (b & d) | (c & d));
+        else             t += 0xCA62C1D6 + (b ^ c ^ d);
+        e = d; d = c; c = ROTL32(b, 30); b = a; a = t;
+    }
+    x[0] += a; x[1] += b; x[2] += c; x[3] += d; x[4] += e;
+}
+
+static void
+s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
+{
+    uint8_t tmp[64] = {0};
+    uint32_t x[] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    size_t p = 0;
+
+    for (; p + 64 <= len; p += 64)
+        s_sha1_process(buf + p, x);
+
+    if (len > p)
+        memcpy(tmp, buf + p, len - p);
+
+    p = len - p;
+    tmp[p++] = 0x80;
+
+    if (p > 56) {
+        s_sha1_process(tmp, x);
+        memset(tmp, 0, sizeof(tmp));
+    }
+    store64_be(tmp + 56, len << 3);
+    s_sha1_process(tmp, x);
+
+    for (int i = 0; i < 5; i++)
+        store32_be(&digest[i << 2], x[i]);
+}
+
+static void
+s_totp(const char *secret, size_t len)
+{
+    uint8_t h[20];
+    uint8_t ki[64 +  8] = {0};
+    uint8_t ko[64 + 20] = {0};
+
+    if (!len || len > 64)
+        return;
+
+    memcpy(ki, secret, len);
+    memcpy(ko, secret, len);
+
+    for (int i = 0; i < 64; i++) {
+        ki[i] ^= 0x36;
+        ko[i] ^= 0x5c;
+    }
+    store64_be(&ki[64], ((uint64_t)time(NULL)) / 30);
+    s_sha1(&ko[64], ki, sizeof(ki));
+    s_sha1(h, ko, sizeof(ko));
+
+    hydro_memzero(ki, sizeof(ki));
+    hydro_memzero(ko, sizeof(ko));
+
+    uint32_t ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31))
+                 % UINT32_C(1000000);
+    char tmp[7];
+    if (snprintf(tmp, sizeof(tmp), "%06" PRIu32, ret) == 6)
+        s_write(1, tmp, 6);
+}
+
 static int
 s_show(int argc, char **argv, void *data)
 {
@@ -459,7 +541,12 @@ s_show(int argc, char **argv, void *data)
     const char *secret = s_get_secret(fd, argv[1], 0);
 
     if (secret) {
-        s_write(1, secret, load16_le(s.x.entry.slen));
+        size_t len = load16_le(s.x.entry.slen);
+        if (strstr(argv[1], "totp")) {
+            s_totp(secret, len);
+        } else {
+            s_write(1, secret, len);
+        }
         if (isatty(1)) s_write(1, "\n", 1);
     }
     close(fd);

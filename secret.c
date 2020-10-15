@@ -352,11 +352,19 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
 static int
 s_init(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv) || argc != 1) {
-        if (isatty(1))
-            printf("Usage: %s\n", argv[0]);
-        return 0;
-    }
+    struct argz_ull opslimit = {
+        .min = 100,
+        .value = 10000,
+    };
+    struct argz z[] = {
+        {"opslimit", "Number of iterations to perform", argz_ull, &opslimit},
+        {0}};
+
+    int err = argz(argc, argv, z);
+
+    if (err)
+        return err;
+
     if (getenv(S_ENV_AGENT))
         s_fatal("Agent is running...");
 
@@ -368,7 +376,7 @@ s_init(int argc, char **argv, void *data)
     }
     s.hdr.version = 0;
     hydro_random_buf(s.hdr.master, sizeof(s.hdr.master));
-    store64_le(s.hdr.opslimit, 10000);
+    store64_le(s.hdr.opslimit, (uint64_t)opslimit.value);
     s_write(fd, s.hdr.buf, sizeof(s.hdr.buf));
     return 0;
 }
@@ -379,7 +387,7 @@ s_list(int argc, char **argv, void *data)
     if (argz_help(argc, argv) || argc > 2) {
         if (isatty(1))
             printf("Usage: %s [NEEDLE]\n", argv[0]);
-        return 0;
+        return -1;
     }
     s_print_keys(argv[1], 1);
     return 0;
@@ -417,7 +425,7 @@ s_do(int argc, char **argv, void *data)
         } else if (argc == 2 && !(op & s_op_create)) {
             s_print_keys(NULL, 0);
         }
-        return 0;
+        return -1;
     }
     int fd = s_open_secret(1, O_RDWR);
     const char *old = s_get_secret(fd, argv[1], op & s_op_create);
@@ -452,7 +460,7 @@ s_show(int argc, char **argv, void *data)
         } else if (argc == 2) {
             s_print_keys(NULL, 0);
         }
-        return 0;
+        return -1;
     }
     int fd = s_open_secret(1, O_RDONLY);
     const char *secret = s_get_secret(fd, argv[1], 0);
@@ -471,7 +479,7 @@ s_pass(int argc, char **argv, void *data)
     if (argz_help(argc, argv) || argc < 2) {
         if (isatty(1))
             printf("Usage: %s KEY [SUBKEY...]\n", argv[0]);
-        return 0;
+        return -1;
     }
     int fd = s_open_secret(1, O_RDONLY);
     s_get_secret(fd, NULL, 0);
@@ -520,7 +528,7 @@ s_agent(int argc, char **argv, void *data)
         } else if (argc == 2) {
             printf("CMD\n");
         }
-        return 0;
+        return -1;
     }
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
@@ -657,11 +665,11 @@ s_set_path(void)
 static int
 s_version(int argc, char **argv, void *data)
 {
-    if (argz_help(argc, argv) || argc != 1) {
-        if (isatty(1))
-            printf("Usage: %s\n", argv[0]);
-        return 0;
-    }
+    int err = argz(argc, argv, NULL);
+
+    if (err)
+        return err;
+
     printf("%u.%u\n", S_VER_MAJOR, S_VER_MINOR);
     return 0;
 }
@@ -679,7 +687,7 @@ main(int argc, char **argv)
     enum s_op s_rnw = s_op_generate;
     enum s_op s_rst = 0;
 
-    struct argz mainz[] = {
+    struct argz z[] = {
         {"init",    "Initialize secret for the current user",      &s_init, .grp = 1},
         {"list",    "List all secrets for a given passphrase",     &s_list, .grp = 1},
         {"show",    "Print a secret",                  &s_show,    NULL,    .grp = 1},
@@ -693,11 +701,10 @@ main(int argc, char **argv)
         {0}};
 
     if (argc == 1) {
-        printf("Available commands:\n");
-        argz_print(mainz);
-    } else {
-        int ret = argz(argc, argv, mainz);
-        hydro_memzero(&s.x, sizeof(s.x));
-        return ret;
+        argz_print(z);
+        return 0;
     }
+    int ret = argz_main(argc, argv, z);
+    hydro_memzero(&s.x, sizeof(s.x));
+    return ret;
 }

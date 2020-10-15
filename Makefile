@@ -1,16 +1,17 @@
 CC     = cc
 CFLAGS = -Wall -O2
 prefix = /usr/local
+PREFIX = $(prefix)
 
 secret:
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) secret.c -o secret
+	$(X)$(CC) $(EXTRA) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) secret.c -o secret
 
 install: secret
-	mkdir -p $(DESTDIR)$(prefix)/bin
-	mv -f secret $(DESTDIR)$(prefix)/bin
+	mkdir -p $(DESTDIR)$(PREFIX)/bin
+	mv -f secret $(DESTDIR)$(PREFIX)/bin
 
 uninstall:
-	rm -f $(DESTDIR)$(prefix)/bin/secret
+	rm -f $(DESTDIR)$(PREFIX)/bin/secret
 
 clean:
 	rm -f secret

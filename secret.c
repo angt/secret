@@ -521,8 +521,9 @@ totp(const char *secret, size_t len)
 
     uint32_t ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31))
                  % UINT32_C(1000000);
-
-    printf("%06" PRIu32, ret);
+    char tmp[7];
+    if (snprintf(tmp, sizeof(tmp), "%06" PRIu32, ret) == 6)
+        s_write(1, tmp, 6);
 }
 
 static int

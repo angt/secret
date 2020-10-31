@@ -27,7 +27,15 @@ In 2020, using a bloated library full of CVEs will not have been reasonable cons
 Only one cryptographic building block is used, the [Gimli](https://gimli.cr.yp.to/gimli-20170627.pdf) permutation.
 All cryptographic operations are derived from this permutation and implemented in the [libhydrogen](https://libhydrogen.org/) library.
 
-## Build and install
+## Install
+
+### Homebrew
+
+You can simply install `secret` from my [Homebrew Tap](https://github.com/angt/homebrew-tap):
+
+    $ brew install angt/tap/secret
+
+### Build from source
 
 This should work on a wide variety of architectures and POSIX systems.
 It was successfully tested on Linux, OpenBSD, FreeBSD and MacOS.
@@ -42,6 +50,9 @@ Then, run as `root`:
     # make install
 
 As usual, you can customize the destination with `DESTDIR` and `prefix`.
+Typically if you want to change the default `/usr/local` prefix:
+
+    # make prefix=/usr install
 
 ### Tab completion
 
@@ -50,8 +61,8 @@ Unfortunately, it doesn't work out of the box, you have to setup it manually.
 Luckily, it's super easy!
 
 Download the file corresponding to your shell:
- - [argz.bash](https://github.com/angt/argz/blob/dev/comp/argz.bash).
- - [argz.yash](https://github.com/angt/argz/blob/dev/comp/argz.yash).
+ - [argz.bash](https://github.com/angt/argz/blob/dev/comp/argz.bash)
+ - [argz.yash](https://github.com/angt/argz/blob/dev/comp/argz.yash)
 
 Then you can add these lines in your `.bashrc` (or `.zshrc`):
 

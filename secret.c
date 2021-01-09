@@ -1,4 +1,5 @@
-#define _GNU_SOURCE
+#include "argz/argz.c"
+#include "libhydrogen/hydrogen.c"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -10,13 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
-
-#include "argz/argz.c"
-#include "libhydrogen/hydrogen.c"
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_VER_MAJOR  0U
@@ -68,8 +65,9 @@ _Noreturn static void
 s_fatal(const char *fmt, ...)
 {
     va_list ap;
-    char buf[256];
-    size_t size = sizeof(buf);
+    char tmp[256] = "Fatal: ";
+    char *buf = &tmp[7];
+    size_t size = sizeof(tmp) - 7;
 
     va_start(ap, fmt);
     int ret = vsnprintf(buf, size, fmt, ap);
@@ -78,16 +76,11 @@ s_fatal(const char *fmt, ...)
     if (ret <= 0) {
         buf[0] = '?';
         size = 1;
+    } else if (size > (size_t)ret) {
+        size = (size_t)ret + 1;
     }
-    if (size > (size_t)ret)
-        size = (size_t)ret;
-
-    char hdr[] = "Fatal: ";
-    struct iovec iov[] = {
-        {hdr, sizeof(hdr) - 1},
-        {buf, size}, {"\n", 1},
-    };
-    writev(2, iov, 3);
+    buf[size - 1] = '\n';
+    write(2, tmp, size + 7);
     s_exit(1);
 }
 

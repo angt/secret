@@ -80,7 +80,7 @@ s_fatal(const char *fmt, ...)
         size = (size_t)ret + 1;
     }
     buf[size - 1] = '\n';
-    write(2, tmp, size + 7);
+    (void)!write(2, tmp, size + 7);
     s_exit(1);
 }
 
@@ -576,7 +576,7 @@ s_agent(int argc, char **argv, void *data)
         }
         if (fds[0].revents & POLLIN) {
             char tmp;
-            read(fds[0].fd, &tmp, 1);
+            (void)!read(fds[0].fd, &tmp, 1);
 
             int status;
             pid_t ret = waitpid(-1, &status, WNOHANG);
@@ -596,11 +596,11 @@ s_agent(int argc, char **argv, void *data)
             fds[1].fd = -1;
         } else if (fds[1].revents & POLLIN) {
             char tmp;
-            read(fds[1].fd, &tmp, 1);
+            (void)!read(fds[1].fd, &tmp, 1);
             fds[1].fd = wfd[1];
             fds[1].events = POLLOUT;
         } else if (fds[1].revents & POLLOUT) {
-            write(fds[1].fd, s.x.key, sizeof(s.x.key));
+            (void)!write(fds[1].fd, s.x.key, sizeof(s.x.key));
             fds[1].fd = rfd[0];
             fds[1].events = POLLIN;
         }
@@ -613,7 +613,7 @@ s_handler(int sig)
     int err = errno;
 
     if (sig == SIGCHLD && s.pipe[1] != -1)
-        write(s.pipe[1], "", 1);
+        (void)!write(s.pipe[1], "", 1);
 
     errno = err;
 }

@@ -56,26 +56,35 @@ Typically if you want to change the default `/usr/local` prefix:
 
 ### Tab completion
 
-Tab completion works with `bash` and `yash` (`zsh` is also supported if you enable `bashcompinit`).
+Tab completion works with `bash`, `zsh` and `yash`.
 Unfortunately, it doesn't work out of the box, you have to setup it manually.
 Luckily, it's super easy!
 
 Download the file corresponding to your shell:
- - [argz.bash](https://github.com/angt/argz/blob/dev/comp/argz.bash)
- - [argz.yash](https://github.com/angt/argz/blob/dev/comp/argz.yash)
 
-Then you can add these lines in your `.bashrc` (or `.zshrc`):
+ - [argz.bash](https://raw.githubusercontent.com/angt/argz/master/comp/argz.bash)
+ - [argz.yash](https://raw.githubusercontent.com/angt/argz/master/comp/argz.yash)
+ - [argz.zsh](https://raw.githubusercontent.com/angt/argz/master/comp/argz.zsh)
 
-    . argz.bash
+Then, for `bash`, you can add these lines in your `.bashrc`:
+
+    . YOUR_PATH_TO/argz.bash
+
     complete -F _argz secret
 
-Or in your `.yashrc`:
+For `yash`, in your `.yashrc`:
 
-    . argz.yash
+    . YOUR_PATH_TO/argz.yash
 
     function completion/secret {
         command -f completion//reexecute argz
     }
+
+And finally, for `zsh`, in your `.zshrc`:
+
+    . YOUR_PATH_TO/argz.zsh
+
+    compdef _argz secret
 
 Completion for secrets is only available in a trusted shell. See below.
 

@@ -118,13 +118,35 @@ Add a new randomly generated secret:
 
     $ secret new test
     Passphrase:
-    ^>f.8%]_zoN^jSi0CO_{(yYY5
+    No secrets stored with this passphrase.
+    Please, retype it to confirm:
+    /xK;{%@d~hPh.L'5-Sn{sBQd5
 
 Show the secret:
 
     $ secret show test
     Passphrase:
-    ^>f.8%]_zoN^jSi0CO_{(yYY5
+    /xK;{%@d~hPh.L'5-Sn{sBQd5
+
+Rename a secret, press ENTER to not change it:
+
+    $ secret update test test2
+    Passphrase:
+    Secret:
+
+    $ secret show test2
+    Passphrase:
+    /xK;{%@d~hPh.L'5-Sn{sBQd5
+
+Pipe a secret:
+
+    $ secret show test2 | tr -cd [a-z] | secret update test2
+    Passphrase:
+    Passphrase:
+
+    $ secret show test2
+    Passphrase:
+    xdhhnsd
 
 Derive a deterministic (a.k.a. unstored) secret:
 

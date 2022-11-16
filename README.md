@@ -188,7 +188,7 @@ Start a trusted zone:
 Now, the passphrase is not requested and completion fully works!
 
 If you don't use `bash` but still want completion,
-run `secret agent bash` or (much better) send a PR to add support for your shiny shell :)
+run `secret agent <yourawesomeshell>` or (much better) send a PR to add support for your shiny shell :)
 
 ---
 For feature requests and bug reports,

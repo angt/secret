@@ -189,6 +189,21 @@ Add a binary secret:
     00000000: 0ee9 cdb3 de0a 3e71 b623 726d 5d7e eb23  ......>q.#rm]~.#
     00000010: 5b43 a458 3fb7 3b96 ea9b 6e47 d302 cae7  [C.X?.;...nG....
 
+Add a multiline secret:
+
+    $ secret set test/multiline << EOF
+    first secret line
+    second secret line
+    EOF
+
+    $ secret show test/multiline
+    first secret line
+    second secret line
+
+Add a reasonable file as secret: 
+
+    $ cat /tmp/secret_file | secret set test/secret
+
 Start a trusted zone:
 
     $ secret agent

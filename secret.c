@@ -85,13 +85,6 @@ s_fatal(const char *fmt, ...)
     s_exit(1);
 }
 
-_Noreturn static void
-s_oops(const int line)
-{
-    s_fatal("Oops at line %i", line);
-    s_exit(2);
-}
-
 static size_t
 s_read(int fd, void *data, size_t size)
 {
@@ -199,7 +192,7 @@ s_ask_pass(void *buf, size_t size, const char *prompt)
                                        s.ctx_master, s.hdr.master,
                                        load64_le(s.hdr.opslimit), 0, 1);
     hydro_memzero(pass, sizeof(pass));
-    if (r) s_oops(__LINE__);
+    if (r) s_fatal("s_ask_pass() failed");
 }
 
 static int
@@ -574,8 +567,8 @@ s_pass(int argc, char **argv, void *data)
                                            argv[i], s_keylen(argv[i]),
                                            s.ctx_passwd, key,
                                            load64_le(s.hdr.opslimit), 0, 1);
+        if (r) s_fatal("s_pass() failed");
         memcpy(key, buf, sizeof(key));
-        if (r) s_oops(__LINE__);
     }
     s_normalize_and_show(buf, sizeof(buf), S_PWDGENLEN);
     return 0;

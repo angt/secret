@@ -158,6 +158,15 @@ Add a TOTP token:
     Passphrase:
     $ 123456
 
+Add a base32 encoded TOTP token:
+
+    $ echo JBSWY3DPEHPK3PXP | secret set test/totp32
+    Passphrase:
+
+    $ secret show test/totp32
+    Passphrase:
+    $ 123456
+
 Derive a deterministic (a.k.a. unstored) secret:
 
     $ secret pass me@domain.com

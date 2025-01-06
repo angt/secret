@@ -491,12 +491,12 @@ s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
 static void
 s_totp(const char *secret, size_t len)
 {
+    if (!len || len > 64)
+        return;
+
     uint8_t h[20];
     uint8_t ki[64 +  8] = {0};
     uint8_t ko[64 + 20] = {0};
-
-    if (!len || len > 64)
-        return;
 
     memcpy(ki, secret, len);
     memcpy(ko, secret, len);
@@ -519,6 +519,52 @@ s_totp(const char *secret, size_t len)
         s_write(1, tmp, 6);
 }
 
+static unsigned
+s_b32(char c)
+{
+    if (c >= 'A' && c <= 'Z') {
+        return c - 'A';
+    } else if (c >= '2' && c <= '9') {
+        return c - '2' + ('Z' - 'A') + 1;
+    }
+    s_fatal("Invalid base32 character");
+}
+
+static void
+s_totp32(const char *secret, size_t len)
+{
+    if (!len)
+        return;
+
+    char out[64];
+    size_t outlen = 0;
+    unsigned buf = 0;
+    int bits = 0;
+
+    for (int i = 0; i < len; i++) {
+        char c = secret[i];
+
+        if (!c || c == '=' || c == '\n')
+            break;
+
+        buf = (buf << 5) | s_b32(c);
+        bits += 5;
+
+        if (bits < 8)
+            continue;
+
+        if (outlen == 64)
+            s_fatal("TOTP too big");
+
+        bits -= 8;
+        out[outlen++] = (buf >> bits) & 0xFF;
+    }
+    if (bits)
+        out[outlen++] = (buf << (8 - bits)) & 0xFF;
+
+    s_totp(out, outlen);
+}
+
 static int
 s_show(int argc, char **argv, void *data)
 {
@@ -535,7 +581,9 @@ s_show(int argc, char **argv, void *data)
 
     if (secret) {
         size_t len = load16_le(s.x.entry.slen);
-        if (strstr(argv[1], "totp")) {
+        if (strstr(argv[1], "totp32")) {
+            s_totp32(secret, len);
+        } else if (strstr(argv[1], "totp")) {
             s_totp(secret, len);
         } else {
             s_write(1, secret, len);

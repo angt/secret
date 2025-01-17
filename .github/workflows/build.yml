@@ -26,7 +26,8 @@ jobs:
           x86_64-linux-musl \
           x86_64-macos-none
         do
-          zig cc -target "$target" -s -o secret-${target%-*}.bin secret.c
+          zig cc -target "$target" -Os -s -o secret-${target%-*} secret.c
+          gzip -9 secret-${target%-*}
         done
 
     - name: Release
@@ -41,7 +42,7 @@ jobs:
 
     - name: Upload
       run: |
-        for file in secret-*.bin
+        for file in secret-*.gz
         do
           gh release upload "${{ github.ref_name }}" "$file" --repo "${{ github.repository }}"
         done

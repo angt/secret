@@ -1,8 +1,5 @@
 name: Build
-on:
-  push:
-    tags:
-      - 'v*'
+on: [push]
 jobs:
   build:
     name: Build
@@ -34,5 +31,12 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release create "${{ github.ref_name }}" secret-*.gz \
-          --title "secret ${{ github.ref_name.replace('v', '') }}"
+        case "$GITHUB_REF" in
+        (refs/tags/v*)
+          gh release create "$GITHUB_REF_NAME" secret-*.gz \
+             --title "secret ${GITHUB_REF_NAME#v}" ;;
+        (refs/heads/master)
+          gh release create "master-g$GITHUB_SHA" secret-*.gz \
+             --title "secret $(echo $GITHUB_SHA | cut -c1-8)" \
+             --prerelease ;;
+        esac

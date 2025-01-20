@@ -30,11 +30,16 @@ All cryptographic operations are derived from this permutation and implemented i
 
 ## Install
 
-### Homebrew
+### Download precompiled binaries
 
-You can simply install `secret` from my [Homebrew Tap](https://github.com/angt/homebrew-tap):
+You can find the latest gzipped binaries for Linux and macOS [here](https://github.com/angt/secret/releases/latest).
 
-    $ brew install angt/tap/secret
+For example, on macos with an intel cpu, do the following:
+
+    $ curl -sSOf https://github.com/angt/secret/releases/latest/download/secret-x86_64-macos.gz
+    $ gunzip secret-x86_64-macos.gz
+    $ chmod +x secret-x86_64-macos
+    $ ./secret-x86_64-macos
 
 ### Build from source
 

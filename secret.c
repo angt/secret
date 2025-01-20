@@ -74,14 +74,14 @@ s_fatal(const char *fmt, ...)
     int ret = vsnprintf(buf, size, fmt, ap);
     va_end(ap);
 
-    if (ret <= 0) {
-        buf[0] = '?';
-        size = 1;
-    } else if (size > (size_t)ret) {
-        size = (size_t)ret + 1;
-    }
-    buf[size - 1] = '\n';
-    (void)!write(2, tmp, size + 7);
+    if (ret <= 0)
+        s_exit(1);
+
+    if (size <= (size_t)ret)
+        ret = size - 1;
+
+    buf[ret] = '\n';
+    (void)!write(2, tmp, ret + 8);
     s_exit(1);
 }
 
@@ -361,7 +361,7 @@ s_init(int argc, char **argv, void *data)
         case EEXIST: s_fatal("Secret store %s already exists", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
-    s.hdr.version = 0;
+    s.hdr.version = S_VER_MAJOR;
     hydro_random_buf(s.hdr.master, sizeof(s.hdr.master));
     store64_le(s.hdr.opslimit, (uint64_t)opslimit.value);
     s_write(fd, s.hdr.buf, sizeof(s.hdr.buf));
@@ -765,22 +765,17 @@ s_set_signals(void)
 static void
 s_set_path(void)
 {
-    struct {
-        const char *fmt, *env;
-    } path[] = {
-        {"%s",    getenv(S_ENV_STORE)},
-        {"%s/.secret", getenv("HOME")},
-    };
-    for (size_t i = 0; i < S_COUNT(path); i++) {
-        if (!path[i].env)
-            continue;
+    int ret;
+    const char *store = getenv(S_ENV_STORE);
+    const char *home = getenv("HOME");
 
-        int ret = snprintf(s.path, sizeof(s.path), path[i].fmt, path[i].env);
-
-        if (ret <= 0 || (size_t)ret >= sizeof(s.path))
-            s_fatal("Invalid path... Check $HOME or $" S_ENV_STORE);
-        break;
+    if (store && store[0]) {
+        ret = snprintf(s.path, sizeof(s.path), "%s", store);
+    } else {
+        ret = snprintf(s.path, sizeof(s.path), "%s/.secret", home ? home : "");
     }
+    if (ret <= 1 || (size_t)ret >= sizeof(s.path))
+        s_fatal("Invalid path... Check $HOME or $" S_ENV_STORE);
 }
 
 static int
@@ -809,7 +804,7 @@ main(int argc, char **argv)
     enum s_op s_rst = 0;
 
     struct argz z[] = {
-        {"init",    "Initialize secret for the current user",      &s_init, .grp = 1},
+        {"init",    "Initialize secret",                           &s_init, .grp = 1},
         {"list",    "List all secrets for a given passphrase",     &s_list, .grp = 1},
         {"show",    "Print a secret",                  &s_show,    NULL,    .grp = 1},
         {"new",     "Generate a new random secret",    &s_do,      &s_new,  .grp = 1},

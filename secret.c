@@ -654,6 +654,12 @@ s_agent(int argc, char **argv, void *data)
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
 
+    if (!argv[1])
+        argv = (char *[]){argv[0], getenv("SHELL"), NULL};
+
+    if (!argv[1])
+        s_fatal("Missing env SHELL, nothing to exec!");
+
     int fd = s_open_secret(1, O_RDONLY);
     s_get_secret(fd, NULL, 0);
     close(fd);
@@ -668,12 +674,12 @@ s_agent(int argc, char **argv, void *data)
     s_nonblck(rfd[0]); s_nonblck(rfd[1]);
     s_nonblck(wfd[0]); s_nonblck(wfd[1]);
 
-    pid_t pid = fork();
+    pid_t child = fork();
 
-    if (pid == (pid_t)-1)
+    if (child == (pid_t)-1)
         s_fatal("fork: %s", strerror(errno));
 
-    if (!pid) {
+    if (!child) {
         close(rfd[0]); close(wfd[1]);
         hydro_memzero(&s.x, sizeof(s.x));
 
@@ -681,13 +687,7 @@ s_agent(int argc, char **argv, void *data)
         snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
         setenv(S_ENV_AGENT, tmp, 1);
 
-        if (argv[1]) {
-            execvp(argv[1], argv + 1);
-        } else {
-            char *sh = getenv("SHELL");
-            if (!sh) sh = "/bin/sh";
-            execl(sh, sh, (char *)NULL);
-        }
+        execvp(argv[1], argv + 1);
         s_fatal("%s: %s", argv[1], strerror(errno));
     }
     close(rfd[1]); close(wfd[0]);
@@ -697,40 +697,44 @@ s_agent(int argc, char **argv, void *data)
         {.fd = rfd[0],    .events = POLLIN},
     };
     while (1) {
-        if (poll(fds, 1 + (fds[1].fd >= 0), -1) == -1) {
-            if (errno == EINTR)
-                continue;
-            s_fatal("poll: %s", strerror(errno));
-        }
-        if (fds[0].revents & POLLIN) {
-            char tmp;
-            (void)!read(fds[0].fd, &tmp, 1);
-
-            int status;
-            pid_t ret = waitpid(-1, &status, WNOHANG);
-
-            if (ret == (pid_t)-1) switch (errno) {
-                case EINTR:  continue;
-                case EAGAIN: continue;
-                case ECHILD: s_exit(0);
-                default:     s_fatal("waitpid: %s", strerror(errno));
+        if (poll(fds, 1 + (fds[1].fd >= 0), -1) > 0) {
+            if (fds[0].revents & POLLIN) {
+                char tmp;
+                (void)!read(fds[0].fd, &tmp, 1);
             }
-            if ((ret == pid) &&
-                (WIFEXITED(status) || WIFSIGNALED(status)))
-                s_exit(0);
+            if (fds[1].revents & (POLLERR | POLLHUP)) {
+                if (fds[1].fd == rfd[0]) {
+                    close(rfd[0]);
+                    rfd[0] = -1;
+                }
+                if (fds[1].fd == wfd[1]) {
+                    close(wfd[1]);
+                    wfd[1] = -1;
+                }
+                fds[1].fd = -1;
+                fds[1].events = 0;
+            } else if (fds[1].revents & POLLIN) {
+                char tmp;
+                (void)!read(fds[1].fd, &tmp, 1);
+                fds[1].fd = wfd[1];
+                fds[1].events = POLLOUT;
+            } else if (fds[1].revents & POLLOUT) {
+                (void)!write(fds[1].fd, s.x.key, sizeof(s.x.key));
+                fds[1].fd = rfd[0];
+                fds[1].events = POLLIN;
+            }
         }
-        if (fds[1].revents & (POLLERR | POLLHUP)) {
-            close(rfd[0]); close(wfd[1]);
-            fds[1].fd = -1;
-        } else if (fds[1].revents & POLLIN) {
-            char tmp;
-            (void)!read(fds[1].fd, &tmp, 1);
-            fds[1].fd = wfd[1];
-            fds[1].events = POLLOUT;
-        } else if (fds[1].revents & POLLOUT) {
-            (void)!write(fds[1].fd, s.x.key, sizeof(s.x.key));
-            fds[1].fd = rfd[0];
-            fds[1].events = POLLIN;
+        while (1) {
+            int status;
+            pid_t pid = waitpid(-1, &status, WNOHANG);
+
+            if (pid <= 0) {
+                if (pid == (pid_t)-1 && errno == ECHILD)
+                    s_exit(0);
+                break;
+            }
+            if (pid == child && (WIFEXITED(status) || WIFSIGNALED(status)))
+                s_exit(0);
         }
     }
 }
@@ -738,10 +742,15 @@ s_agent(int argc, char **argv, void *data)
 static void
 s_handler(int sig)
 {
-    int err = errno;
+    if (s.pipe[1] == -1 || sig != SIGCHLD)
+        return;
 
-    if (sig == SIGCHLD && s.pipe[1] != -1)
-        (void)!write(s.pipe[1], "", 1);
+    int err = errno;
+    ssize_t ret;
+
+    do {
+        ret = write(s.pipe[1], "", 1);
+    } while (ret == -1 && errno == EINTR);
 
     errno = err;
 }

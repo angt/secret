@@ -566,7 +566,7 @@ s_totp32(const char *secret, size_t len)
 }
 
 static int
-s_show(int argc, char **argv, void *data)
+s_show(int argc, char **argv, void *dump)
 {
     if (argz_help(argc, argv) || argc != 2) {
         if (isatty(1)) {
@@ -581,9 +581,9 @@ s_show(int argc, char **argv, void *data)
 
     if (secret) {
         size_t len = load16_le(s.x.entry.slen);
-        if (strstr(argv[1], "totp32")) {
+        if (!dump && strstr(argv[1], "totp32")) {
             s_totp32(secret, len);
-        } else if (strstr(argv[1], "totp")) {
+        } else if (!dump && strstr(argv[1], "totp")) {
             s_totp(secret, len);
         } else {
             s_write(1, secret, len);
@@ -811,11 +811,13 @@ main(int argc, char **argv)
     enum s_op s_set = s_op_create;
     enum s_op s_rnw = s_op_generate;
     enum s_op s_rst = 0;
+    int dump = 1;
 
     struct argz z[] = {
         {"init",    "Initialize secret",                           &s_init, .grp = 1},
         {"list",    "List all secrets for a given passphrase",     &s_list, .grp = 1},
         {"show",    "Print a secret",                  &s_show,    NULL,    .grp = 1},
+        {"dump",    "Dump a raw secret",               &s_show,    &dump,   .grp = 1},
         {"new",     "Generate a new random secret",    &s_do,      &s_new,  .grp = 1},
         {"set",     "Set a new secret",                &s_do,      &s_set,  .grp = 1},
         {"renew",   "Regenerate an existing secret",   &s_do,      &s_rnw,  .grp = 1},

@@ -654,11 +654,14 @@ s_agent(int argc, char **argv, void *data)
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
 
-    if (!argv[1])
-        argv = (char *[]){argv[0], getenv("SHELL"), NULL};
+    const char *shell = argv[1];
+    if (!shell) {
+        shell = getenv("SHELL");
+    }
 
-    if (!argv[1])
+    if (!shell) {
         s_fatal("Missing env SHELL, nothing to exec!");
+    }
 
     int fd = s_open_secret(1, O_RDONLY);
     s_get_secret(fd, NULL, 0);
@@ -687,8 +690,8 @@ s_agent(int argc, char **argv, void *data)
         snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
         setenv(S_ENV_AGENT, tmp, 1);
 
-        execvp(argv[1], argv + 1);
-        s_fatal("%s: %s", argv[1], strerror(errno));
+        execvp(shell, argv + 1);
+        s_fatal("%s: %s", shell, strerror(errno));
     }
     close(rfd[1]); close(wfd[0]);
 

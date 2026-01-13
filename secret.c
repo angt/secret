@@ -634,13 +634,12 @@ s_agent(int argc, char **argv, void *data)
         s_fatal("Already running...");
 
     const char *shell = argv[1];
-    if (!shell) {
-        shell = getenv("SHELL");
-    }
 
-    if (!shell) {
+    if (!shell)
+        shell = getenv("SHELL");
+
+    if (!shell)
         s_fatal("Missing env SHELL, nothing to exec!");
-    }
 
     int fd = s_open_secret(1, O_RDONLY);
     s_get_secret(fd, NULL, 0);

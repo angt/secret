@@ -5,7 +5,6 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <poll.h>
-#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -27,7 +26,6 @@
 
 static struct {
     char path[1024];
-    int pipe[2];
     union {
         struct {
             uint8_t version;
@@ -49,7 +47,6 @@ static struct {
     char ctx_passwd[hydro_pwhash_CONTEXTBYTES];
     int pass_ok;
 } s = {
-    .pipe = {-1, -1},
     .ctx_master = "MASTER",
     .ctx_secret = "SECRET",
     .ctx_passwd = "PASSWD",
@@ -622,24 +619,6 @@ s_pass(int argc, char **argv, void *data)
     return 0;
 }
 
-static void
-s_cloexec(int fd)
-{
-    if (fcntl(fd, F_SETFD, FD_CLOEXEC))
-        s_fatal("cloexec: %s", strerror(errno));
-}
-
-static void
-s_nonblck(int fd)
-{
-    int flags = fcntl(fd, F_GETFL, 0);
-
-    if (flags == -1)
-        return;
-
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-}
-
 static int
 s_agent(int argc, char **argv, void *data)
 {
@@ -665,22 +644,17 @@ s_agent(int argc, char **argv, void *data)
     close(fd);
 
     int rfd[2], wfd[2];
-    if (pipe(rfd) || pipe(wfd) || pipe(s.pipe))
+    if (pipe(rfd) || pipe(wfd))
         s_fatal("pipe: %s", strerror(errno));
-
-    s_cloexec(s.pipe[0]); s_cloexec(s.pipe[1]);
-    s_nonblck(s.pipe[0]); s_nonblck(s.pipe[1]);
-
-    s_nonblck(rfd[0]); s_nonblck(rfd[1]);
-    s_nonblck(wfd[0]); s_nonblck(wfd[1]);
 
     pid_t child = fork();
 
     if (child == (pid_t)-1)
         s_fatal("fork: %s", strerror(errno));
 
-    if (!child) {
-        close(rfd[0]); close(wfd[1]);
+    if (child) {
+        close(rfd[0]);
+        close(wfd[1]);
         hydro_memzero(&s.x, sizeof(s.x));
 
         char tmp[32];
@@ -690,85 +664,18 @@ s_agent(int argc, char **argv, void *data)
         execvp(argv[1], argv + 1);
         s_fatal("%s: %s", argv[1], strerror(errno));
     }
-    close(rfd[1]); close(wfd[0]);
+    close(rfd[1]);
+    close(wfd[0]);
 
-    struct pollfd fds[] = {
-        {.fd = s.pipe[0], .events = POLLIN},
-        {.fd = rfd[0],    .events = POLLIN},
-    };
-    while (1) {
-        if (poll(fds, 1 + (fds[1].fd >= 0), -1) > 0) {
-            if (fds[0].revents & POLLIN) {
-                char tmp;
-                (void)!read(fds[0].fd, &tmp, 1);
-            }
-            if (fds[1].revents & (POLLERR | POLLHUP)) {
-                if (fds[1].fd == rfd[0]) {
-                    close(rfd[0]);
-                    rfd[0] = -1;
-                }
-                if (fds[1].fd == wfd[1]) {
-                    close(wfd[1]);
-                    wfd[1] = -1;
-                }
-                fds[1].fd = -1;
-                fds[1].events = 0;
-            } else if (fds[1].revents & POLLIN) {
-                char tmp;
-                (void)!read(fds[1].fd, &tmp, 1);
-                fds[1].fd = wfd[1];
-                fds[1].events = POLLOUT;
-            } else if (fds[1].revents & POLLOUT) {
-                (void)!write(fds[1].fd, s.x.key, sizeof(s.x.key));
-                fds[1].fd = rfd[0];
-                fds[1].events = POLLIN;
-            }
-        }
-        while (1) {
-            int status;
-            pid_t pid = waitpid(-1, &status, WNOHANG);
+    if (setsid() == -1)
+        s_fatal("setsid: %s", strerror(errno));
 
-            if (pid <= 0) {
-                if (pid == (pid_t)-1 && errno == ECHILD)
-                    s_exit(0);
-                break;
-            }
-            if (pid == child && (WIFEXITED(status) || WIFSIGNALED(status)))
-                s_exit(0);
-        }
+    char tmp;
+    while (s_read(rfd[0], &tmp, 1) == 1) {
+        if (s_write(wfd[1], s.x.key, sizeof(s.x.key)) != sizeof(s.x.key))
+            return 1;
     }
-}
-
-static void
-s_handler(int sig)
-{
-    if (s.pipe[1] == -1 || sig != SIGCHLD)
-        return;
-
-    int err = errno;
-    ssize_t ret;
-
-    do {
-        ret = write(s.pipe[1], "", 1);
-    } while (ret == -1 && errno == EINTR);
-
-    errno = err;
-}
-
-static void
-s_set_signals(void)
-{
-    int sig[] = {
-        SIGHUP,  SIGINT,  SIGQUIT,
-        SIGUSR1, SIGUSR2, SIGPIPE,
-        SIGALRM, SIGTERM, SIGTSTP,
-        SIGTTIN, SIGCHLD,
-    };
-    struct sigaction sa = {
-        .sa_handler = s_handler,
-    };
-    for (size_t i = 0; i < S_COUNT(sig); i++)
-        sigaction(sig[i], &sa, NULL);
+    return 0;
 }
 
 static void
@@ -803,9 +710,7 @@ int
 main(int argc, char **argv)
 {
     hydro_init();
-
     s_set_path();
-    s_set_signals();
 
     enum s_op s_new = s_op_create | s_op_generate;
     enum s_op s_set = s_op_create;

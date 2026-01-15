@@ -260,9 +260,12 @@ s_print_keys(const char *needle, int use_tty)
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
+
         size_t len = s_keylen(s.x.entry.msg);
+
         if (needle && !strcasestr(s.x.entry.msg, needle))
             continue;
+
         s_write(1, s.x.entry.msg, len);
         s_write(1, "\n", 1);
     }
@@ -273,12 +276,17 @@ static const char *
 s_get_secret(int fd, const char *key, int create)
 {
     size_t len = key ? s_keylen(key) : 0;
+    off_t slot = 0;
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(&s.x.entry,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
+
+        if (create && !slot && hydro_equal(s.x.entry.msg, "DELETED_", 8))
+            slot = lseek(fd, 0, SEEK_CUR) - (off_t)sizeof(s.enc);
+
         if (key && hydro_equal(s.x.entry.msg, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
@@ -290,9 +298,12 @@ s_get_secret(int fd, const char *key, int create)
     }
     if (key && !create)
         s_fatal("Secret %s not found", key);
-    if (s.pass_ok)
-        return NULL;
 
+    if (s.pass_ok) {
+        if (slot)
+            lseek(fd, slot, SEEK_SET);
+        return NULL;
+    }
     char check[sizeof(s.x.key)];
     s_ask_pass(check, sizeof(check),
             "No secrets stored with this passphrase.\n"

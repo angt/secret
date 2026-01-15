@@ -147,7 +147,7 @@ Rename a secret, press ENTER to not change it:
 
 Mark a secret for deletion by renaming, the slot will be reused by the next creation:
 
-    $ secret update test DELETED_test
+    $ secret update test DELETED:test
     Passphrase:
     Secret:
 

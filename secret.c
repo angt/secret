@@ -284,7 +284,7 @@ s_get_secret(int fd, const char *key, int create)
                                     s.ctx_secret, s.x.key))
             continue;
 
-        if (create && !slot && hydro_equal(s.x.entry.msg, "DELETED_", 8))
+        if (create && !slot && hydro_equal(s.x.entry.msg, "DELETED:", 8))
             slot = lseek(fd, 0, SEEK_CUR) - (off_t)sizeof(s.enc);
 
         if (key && hydro_equal(s.x.entry.msg, key, len + 1)) {

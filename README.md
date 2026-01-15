@@ -101,6 +101,7 @@ Available commands:
     init            Initialize secret
     list            List all secrets for a given passphrase
     show            Print a secret
+    dump            Dump a raw secret
     new             Generate a new random secret
     set             Set a new secret
     renew           Regenerate an existing secret
@@ -143,6 +144,12 @@ Rename a secret, press ENTER to not change it:
     $ secret show test2
     Passphrase:
     /xK;{%@d~hPh.L'5-Sn{sBQd5
+
+Mark a secret for deletion by renaming, the slot will be reused by the next creation:
+
+    $ secret update test DELETED_test
+    Passphrase:
+    Secret:
 
 Pipe a secret:
 

@@ -644,7 +644,7 @@ s_agent(int argc, char **argv, void *data)
     if (getenv(S_ENV_AGENT))
         s_fatal("Already running...");
 
-    const char *shell = argv[1];
+    char *shell = argv[1];
 
     if (!shell)
         shell = getenv("SHELL");
@@ -674,7 +674,8 @@ s_agent(int argc, char **argv, void *data)
         snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
         setenv(S_ENV_AGENT, tmp, 1);
 
-        execvp(shell, argv + 1);
+        char *args[] = {shell, NULL};
+        execvp(shell, argv[1] ? argv + 1 : args);
         s_fatal("%s: %s", shell, strerror(errno));
     }
     close(rfd[1]);

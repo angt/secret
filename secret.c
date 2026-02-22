@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -56,7 +57,7 @@ _Noreturn static void
 s_exit(int code)
 {
     hydro_memzero(&s.x, sizeof(s.x));
-    exit(code);
+    _exit(code);
 }
 
 _Noreturn static void
@@ -652,13 +653,13 @@ s_agent(int argc, char **argv, void *data)
     if (!shell)
         s_fatal("Missing env SHELL, nothing to exec!");
 
-    int fd = s_open_secret(1, O_RDONLY);
-    s_get_secret(fd, NULL, 0);
-    close(fd);
-
     int rfd[2], wfd[2];
     if (pipe(rfd) || pipe(wfd))
         s_fatal("pipe: %s", strerror(errno));
+
+    int fd = s_open_secret(1, O_RDONLY);
+    s_get_secret(fd, NULL, 0);
+    close(fd);
 
     pid_t child = fork();
 
@@ -666,9 +667,9 @@ s_agent(int argc, char **argv, void *data)
         s_fatal("fork: %s", strerror(errno));
 
     if (child) {
+        hydro_memzero(&s.x, sizeof(s.x));
         close(rfd[0]);
         close(wfd[1]);
-        hydro_memzero(&s.x, sizeof(s.x));
 
         char tmp[32];
         snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
@@ -720,10 +721,33 @@ s_version(int argc, char **argv, void *data)
     return 0;
 }
 
+static void
+s_handler(int sig)
+{
+    (void)sig;
+}
+
+static void
+s_set_signals(void)
+{
+    int sig[] = {
+        SIGHUP,  SIGINT,  SIGQUIT, SIGUSR1,
+        SIGUSR2, SIGPIPE, SIGALRM, SIGTERM,
+    };
+    struct sigaction sa = {
+        .sa_handler = s_handler,
+    };
+    sigemptyset(&sa.sa_mask);
+
+    for (size_t i = 0; i < S_COUNT(sig); i++)
+        sigaction(sig[i], &sa, NULL);
+}
+
 int
 main(int argc, char **argv)
 {
     hydro_init();
+    s_set_signals();
     s_set_path();
 
     enum s_op s_new = s_op_create | s_op_generate;
@@ -750,7 +774,5 @@ main(int argc, char **argv)
         argz_print(z);
         return 0;
     }
-    int ret = argz_main(argc, argv, z);
-    hydro_memzero(&s.x, sizeof(s.x));
-    return ret;
+    s_exit(argz_main(argc, argv, z));
 }

@@ -532,7 +532,7 @@ s_b32(char c)
 {
     if (c >= 'A' && c <= 'Z') {
         return c - 'A';
-    } else if (c >= '2' && c <= '9') {
+    } else if (c >= '2' && c <= '7') {
         return c - '2' + ('Z' - 'A') + 1;
     }
     s_fatal("Invalid base32 character");

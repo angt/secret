@@ -5,16 +5,19 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <poll.h>
-#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <termios.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifndef __wasi__
+#include <signal.h>
+#include <sys/wait.h>
+#include <termios.h>
+#endif
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_VER_MAJOR  0U
@@ -126,6 +129,14 @@ s_write(int fd, const void *data, size_t size)
 static size_t
 s_input(unsigned char *buf, size_t size, const char *prompt)
 {
+#ifdef __wasi__
+    if (prompt)
+        s_write(2, prompt, strlen(prompt));
+
+    ssize_t ret = read(0, buf, size);
+
+    s_write(2, "\n", 1);
+#else
     const char *tty = "/dev/tty";
     int fd = open(tty, O_RDWR | O_NOCTTY);
 
@@ -157,7 +168,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
 
     s_write(fd, "\n", 1);
     close(fd);
-
+#endif
     if (ret <= 0)
         s_exit(0);
 
@@ -334,6 +345,7 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
     hydro_random_buf(s.x.entry.msg + t, sizeof(s.x.entry.msg) - t);
     hydro_secretbox_encrypt(s.enc, &s.x.entry, sizeof(s.x.entry), 0,
                             s.ctx_secret, s.x.key);
+#ifndef __wasi__
     struct flock fl = {
         .l_type = F_WRLCK,
         .l_whence = SEEK_CUR,
@@ -341,7 +353,7 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
     };
     if (fcntl(fd, F_SETLK, &fl))
         s_fatal("Unable to lock %s", s.path);
-
+#endif
     s_write(fd, s.enc, sizeof(s.enc));
 }
 
@@ -653,6 +665,7 @@ s_agent(int argc, char **argv, void *data)
     if (!shell)
         s_fatal("Missing env SHELL, nothing to exec!");
 
+#ifndef __wasi__
     int rfd[2], wfd[2];
     if (pipe(rfd) || pipe(wfd))
         s_fatal("pipe: %s", strerror(errno));
@@ -691,6 +704,9 @@ s_agent(int argc, char **argv, void *data)
             return 1;
     }
     return 0;
+#else
+    return 1;
+#endif
 }
 
 static void
@@ -721,15 +737,18 @@ s_version(int argc, char **argv, void *data)
     return 0;
 }
 
+#ifndef __wasi__
 static void
 s_handler(int sig)
 {
     (void)sig;
 }
+#endif
 
 static void
 s_set_signals(void)
 {
+#ifndef __wasi__
     int sig[] = {
         SIGHUP,  SIGINT,  SIGQUIT, SIGUSR1,
         SIGUSR2, SIGPIPE, SIGALRM, SIGTERM,
@@ -741,6 +760,7 @@ s_set_signals(void)
 
     for (size_t i = 0; i < S_COUNT(sig); i++)
         sigaction(sig[i], &sa, NULL);
+#endif
 }
 
 int

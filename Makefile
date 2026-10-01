@@ -4,7 +4,10 @@ prefix = /usr/local
 PREFIX = $(prefix)
 
 secret:
-	$(X)$(CC) $(EXTRA) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) secret.c -o secret
+	$(X)$(CC) $(EXTRA) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) secret.c -o $@
+
+secret.wasm:
+	zig cc -target wasm32-wasi -Os secret.c -o $@
 
 install: secret
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

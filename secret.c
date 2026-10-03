@@ -574,7 +574,7 @@ s_totp32(const char *secret, size_t len)
         if (bits < 8)
             continue;
 
-        if (outlen == 64)
+        if (outlen == sizeof(out) - 1)
             s_fatal("TOTP too big");
 
         bits -= 8;

@@ -65,7 +65,7 @@ _Noreturn static void
 s_exit(int code)
 {
     hydro_memzero(&s.x, sizeof(s.x));
-    _exit(code);
+    exit(code);
 }
 
 _Noreturn static void

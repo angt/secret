@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <poll.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -213,12 +214,18 @@ s_ask_agent(void)
 {
 #ifndef __wasi__
     const char *agent = getenv(S_ENV_AGENT);
-    int fd = -1;
 
-    if (!agent || sscanf(agent, "%d", &fd) != 1 || fd < 0)
+    if (!agent)
         return 1;
 
-    ssize_t ret = recv(fd, s.x.key, sizeof(s.x.key), MSG_PEEK | MSG_DONTWAIT | MSG_TRUNC);
+    errno = 0;
+    char *end = NULL;
+    long fd = strtol(agent, &end, 10);
+
+    if (errno || end == agent || *end || fd < 0 || fd > INT_MAX)
+        return 1;
+
+    ssize_t ret = recv((int)fd, s.x.key, sizeof(s.x.key), MSG_PEEK | MSG_DONTWAIT | MSG_TRUNC);
 
     if (ret != (ssize_t)sizeof(s.x.key)) {
         hydro_memzero(s.x.key, sizeof(s.x.key));

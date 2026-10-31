@@ -15,7 +15,7 @@
 
 #ifndef __wasi__
 #include <signal.h>
-#include <sys/wait.h>
+#include <sys/socket.h>
 #include <termios.h>
 #endif
 
@@ -211,19 +211,24 @@ s_ask_pass(void *buf, size_t size, const char *prompt)
 static int
 s_ask_agent(void)
 {
+#ifndef __wasi__
     const char *agent = getenv(S_ENV_AGENT);
-    int wfd = -1, rfd = -1;
+    int fd = -1;
 
-    if (!agent || sscanf(agent, "%d.%d", &wfd, &rfd) != 2 || wfd < 0 || rfd < 0)
+    if (!agent || sscanf(agent, "%d", &fd) != 1 || fd < 0)
         return 1;
 
-    s_write(wfd, "", 1);
+    ssize_t ret = recv(fd, s.x.key, sizeof(s.x.key), MSG_PEEK | MSG_DONTWAIT | MSG_TRUNC);
 
-    if (s_read(rfd, s.x.key, sizeof(s.x.key)) != sizeof(s.x.key))
+    if (ret != (ssize_t)sizeof(s.x.key)) {
+        hydro_memzero(s.x.key, sizeof(s.x.key));
         return 1;
-
+    }
     s.pass_ok = 1;
     return 0;
+#else
+    return 1;
+#endif
 }
 
 static int
@@ -670,44 +675,27 @@ s_agent(int argc, char **argv, void *data)
         s_fatal("Missing env SHELL, nothing to exec!");
 
 #ifndef __wasi__
-    int rfd[2], wfd[2];
-    if (pipe(rfd) || pipe(wfd))
-        s_fatal("pipe: %s", strerror(errno));
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, sv))
+        s_fatal("socketpair: %s", strerror(errno));
 
     int fd = s_open_secret(1, O_RDONLY);
     s_get_secret(fd, NULL, 0);
     close(fd);
 
-    pid_t child = fork();
+    if (send(sv[1], s.x.key, sizeof(s.x.key), 0) != (ssize_t)sizeof(s.x.key))
+        s_fatal("Unable to queue the key");
 
-    if (child == (pid_t)-1)
-        s_fatal("fork: %s", strerror(errno));
+    hydro_memzero(&s, sizeof(s));
+    close(sv[1]);
 
-    if (child) {
-        hydro_memzero(&s.x, sizeof(s.x));
-        close(rfd[0]);
-        close(wfd[1]);
+    char tmp[32];
+    snprintf(tmp, sizeof(tmp), "%d", sv[0]);
+    setenv(S_ENV_AGENT, tmp, 1);
 
-        char tmp[32];
-        snprintf(tmp, sizeof(tmp), "%d.%d", rfd[1], wfd[0]);
-        setenv(S_ENV_AGENT, tmp, 1);
-
-        char *args[] = {shell, NULL};
-        execvp(shell, argv[1] ? argv + 1 : args);
-        s_fatal("%s: %s", shell, strerror(errno));
-    }
-    close(rfd[1]);
-    close(wfd[0]);
-
-    if (setsid() == -1)
-        s_fatal("setsid: %s", strerror(errno));
-
-    char tmp;
-    while (s_read(rfd[0], &tmp, 1) == 1) {
-        if (s_write(wfd[1], s.x.key, sizeof(s.x.key)) != sizeof(s.x.key))
-            return 1;
-    }
-    return 0;
+    char *args[] = {shell, NULL};
+    execvp(shell, argv[1] ? argv + 1 : args);
+    s_fatal("%s: %s", shell, strerror(errno));
 #else
     return 1;
 #endif

@@ -44,21 +44,18 @@ extern int ptrace(int, pid_t, char *, int);
 
 static struct {
     char path[1024];
-    union {
+    struct {
         struct {
             uint8_t version;
             uint8_t master[hydro_pwhash_MASTERKEYBYTES];
             uint8_t opslimit[8];
-        };
-        uint8_t buf[S_ENTRYSIZE];
-    } hdr;
-    struct {
+        } hdr;
         uint8_t key[hydro_secretbox_KEYBYTES];
-        struct {
-            uint8_t slen[2];
-            char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
-        } entry;
     } x;
+    struct {
+        uint8_t slen[2];
+        char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
+    } entry;
     uint8_t enc[S_ENTRYSIZE];
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
     char ctx_secret[hydro_secretbox_CONTEXTBYTES];
@@ -73,7 +70,7 @@ static struct {
 _Noreturn static void
 s_exit(int code)
 {
-    hydro_memzero(&s.x, sizeof(s.x));
+    hydro_memzero(&s, sizeof(s));
     exit(code);
 }
 
@@ -212,8 +209,8 @@ s_ask_pass(void *buf, size_t size, const char *prompt)
 
     int r = hydro_pwhash_deterministic(buf, size,
                                        (char *)pass, len,
-                                       s.ctx_master, s.hdr.master,
-                                       load64_le(s.hdr.opslimit), 0, 1);
+                                       s.ctx_master, s.x.hdr.master,
+                                       load64_le(s.x.hdr.opslimit), 0, 1);
     hydro_memzero(pass, sizeof(pass));
     if (r) s_fatal("s_ask_pass() failed");
 }
@@ -234,14 +231,18 @@ s_ask_agent(void)
     if (errno || end == agent || *end || fd < 0 || fd > INT_MAX)
         return 1;
 
-    ssize_t ret = recv((int)fd, s.x.key, sizeof(s.x.key), MSG_PEEK | MSG_DONTWAIT | MSG_TRUNC);
+    int match = recv((int)fd, s.enc, sizeof(s.enc), MSG_PEEK | MSG_DONTWAIT)
+        == (ssize_t)sizeof(s.x)
+        && !memcmp(s.enc, &s.x.hdr, sizeof(s.x.hdr));
 
-    if (ret != (ssize_t)sizeof(s.x.key)) {
+    if (match) {
+        memcpy(&s.x, s.enc, sizeof(s.x));
+    } else {
         hydro_memzero(s.x.key, sizeof(s.x.key));
-        return 1;
     }
-    s.pass_ok = 1;
-    return 0;
+    hydro_memzero(s.enc, sizeof(s.enc));
+    s.pass_ok = match;
+    return !match;
 #else
     return 1;
 #endif
@@ -256,11 +257,13 @@ s_open_secret(int use_tty, int flags)
         case ENOENT: s_fatal("Secret store %s doesn't exist", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
-    if (s_read(fd, s.hdr.buf, sizeof(s.hdr.buf)) != sizeof(s.hdr.buf))
+    if (s_read(fd, s.enc, sizeof(s.enc)) != sizeof(s.enc))
         s_fatal("Unable to read %s", s.path);
 
-    if (s.hdr.version != S_VER_MAJOR)
-        s_fatal("Unkown version %" PRIu8, s.hdr.version);
+    memcpy(&s.x.hdr, s.enc, sizeof(s.x.hdr));
+
+    if (s.x.hdr.version != S_VER_MAJOR)
+        s_fatal("Unkown version %" PRIu8, s.x.hdr.version);
 
     if (!s_ask_agent())
         return fd;
@@ -293,17 +296,17 @@ s_print_keys(const char *needle, int use_tty)
     int fd = s_open_secret(use_tty, O_RDONLY);
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(&s.x.entry,
+        if (hydro_secretbox_decrypt(&s.entry,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
 
-        size_t len = s_keylen(s.x.entry.msg);
+        size_t len = s_keylen(s.entry.msg);
 
-        if (needle && !strcasestr(s.x.entry.msg, needle))
+        if (needle && !strcasestr(s.entry.msg, needle))
             continue;
 
-        s_write(1, s.x.entry.msg, len);
+        s_write(1, s.entry.msg, len);
         s_write(1, "\n", 1);
     }
     close(fd);
@@ -316,20 +319,20 @@ s_get_secret(int fd, const char *key, int create)
     off_t slot = 0;
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(&s.x.entry,
+        if (hydro_secretbox_decrypt(&s.entry,
                                     s.enc, sizeof(s.enc), 0,
                                     s.ctx_secret, s.x.key))
             continue;
 
-        if (create && !slot && hydro_equal(s.x.entry.msg, "DELETED:", 8))
+        if (create && !slot && hydro_equal(s.entry.msg, "DELETED:", 8))
             slot = lseek(fd, 0, SEEK_CUR) - (off_t)sizeof(s.enc);
 
-        if (key && hydro_equal(s.x.entry.msg, key, len + 1)) {
+        if (key && hydro_equal(s.entry.msg, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
             if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
                 s_fatal("seek: %s", strerror(errno));
-            return &s.x.entry.msg[len + 1];
+            return &s.entry.msg[len + 1];
         }
         s.pass_ok = 1;
     }
@@ -358,17 +361,17 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
 {
     size_t len = s_keylen(key);
 
-    if (len + slen + 1 > sizeof(s.x.entry.msg))
+    if (len + slen + 1 > sizeof(s.entry.msg))
         s_fatal("Entry too big!");
 
-    store16_le(s.x.entry.slen, slen);
+    store16_le(s.entry.slen, slen);
 
     size_t t = 0;
-    memcpy(s.x.entry.msg, key, len);           t += len;
-    s.x.entry.msg[t] = 0;                      t += 1;
-    memcpy(s.x.entry.msg + t, secret, slen);   t += slen;
-    hydro_random_buf(s.x.entry.msg + t, sizeof(s.x.entry.msg) - t);
-    hydro_secretbox_encrypt(s.enc, &s.x.entry, sizeof(s.x.entry), 0,
+    memcpy(s.entry.msg, key, len);             t += len;
+    s.entry.msg[t] = 0;                        t += 1;
+    memcpy(s.entry.msg + t, secret, slen);     t += slen;
+    hydro_random_buf(s.entry.msg + t, sizeof(s.entry.msg) - t);
+    hydro_secretbox_encrypt(s.enc, &s.entry, sizeof(s.entry), 0,
                             s.ctx_secret, s.x.key);
 #ifndef __wasi__
     struct flock fl = {
@@ -407,10 +410,12 @@ s_init(int argc, char **argv, void *data)
         case EEXIST: s_fatal("Secret store %s already exists", s.path);
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
-    s.hdr.version = S_VER_MAJOR;
-    hydro_random_buf(s.hdr.master, sizeof(s.hdr.master));
-    store64_le(s.hdr.opslimit, (uint64_t)opslimit.value);
-    s_write(fd, s.hdr.buf, sizeof(s.hdr.buf));
+    s.x.hdr.version = S_VER_MAJOR;
+    hydro_random_buf(s.x.hdr.master, sizeof(s.x.hdr.master));
+    store64_le(s.x.hdr.opslimit, (uint64_t)opslimit.value);
+    memset(s.enc, 0, sizeof(s.enc));
+    memcpy(s.enc, &s.x.hdr, sizeof(s.x.hdr));
+    s_write(fd, s.enc, sizeof(s.enc));
     return 0;
 }
 
@@ -472,7 +477,7 @@ s_do(int argc, char **argv, void *data)
         len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
                         : s_read(0, secret, sizeof(secret));
         if (!len && old && argc == 3) {
-            len = load16_le(s.x.entry.slen);
+            len = load16_le(s.entry.slen);
             memcpy(secret, old, len);
         }
     }
@@ -626,7 +631,7 @@ s_show(int argc, char **argv, void *dump)
     const char *secret = s_get_secret(fd, argv[1], 0);
 
     if (secret) {
-        size_t len = load16_le(s.x.entry.slen);
+        size_t len = load16_le(s.entry.slen);
         if (!dump && strstr(argv[1], "totp32")) {
             s_totp32(secret, len);
         } else if (!dump && strstr(argv[1], "totp")) {
@@ -660,7 +665,7 @@ s_pass(int argc, char **argv, void *data)
         int r = hydro_pwhash_deterministic(buf, sizeof(buf),
                                            argv[i], s_keylen(argv[i]),
                                            s.ctx_passwd, key,
-                                           load64_le(s.hdr.opslimit), 0, 1);
+                                           load64_le(s.x.hdr.opslimit), 0, 1);
         if (r) s_fatal("s_pass() failed");
         memcpy(key, buf, sizeof(key));
     }
@@ -699,7 +704,7 @@ s_agent(int argc, char **argv, void *data)
     s_get_secret(fd, NULL, 0);
     close(fd);
 
-    if (send(sv[1], s.x.key, sizeof(s.x.key), 0) != (ssize_t)sizeof(s.x.key))
+    if (send(sv[1], &s.x, sizeof(s.x), 0) != (ssize_t)sizeof(s.x))
         s_fatal("Unable to queue the key");
 
     hydro_memzero(&s, sizeof(s));

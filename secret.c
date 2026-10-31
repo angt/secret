@@ -19,6 +19,10 @@
 #include <termios.h>
 #endif
 
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_VER_MAJOR  0U
 #define S_VER_MINOR  18U
@@ -766,6 +770,11 @@ s_set_signals(void)
 int
 main(int argc, char **argv)
 {
+#ifdef __linux__
+    if (prctl(PR_SET_DUMPABLE, 0))
+        s_fatal("prctl: %s", strerror(errno));
+#endif
+
     hydro_init();
     s_set_signals();
     s_set_path();

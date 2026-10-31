@@ -24,6 +24,15 @@
 #include <sys/prctl.h>
 #endif
 
+#ifdef __FreeBSD__
+#include <sys/procctl.h>
+#endif
+
+#ifdef __APPLE__
+#define PT_DENY_ATTACH 31
+extern int ptrace(int, pid_t, char *, int);
+#endif
+
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_VER_MAJOR  0U
 #define S_VER_MINOR  18U
@@ -745,6 +754,22 @@ s_handler(int sig)
 #endif
 
 static void
+s_set_notrace(void)
+{
+#if defined(__linux__)
+    if (prctl(PR_SET_DUMPABLE, 0L) == -1)
+        s_fatal("prctl: %s", strerror(errno));
+#elif defined(__FreeBSD__)
+    int mode = PROC_TRACE_CTL_DISABLE_EXEC;
+    if (procctl(P_PID, 0, PROC_TRACE_CTL, &mode) == -1)
+        s_fatal("procctl: %s", strerror(errno));
+#elif defined(__APPLE__)
+    if (ptrace(PT_DENY_ATTACH, 0, NULL, 0) == -1)
+        s_fatal("ptrace: %s", strerror(errno));
+#endif
+}
+
+static void
 s_set_signals(void)
 {
 #ifndef __wasi__
@@ -765,12 +790,8 @@ s_set_signals(void)
 int
 main(int argc, char **argv)
 {
-#ifdef __linux__
-    if (prctl(PR_SET_DUMPABLE, 0))
-        s_fatal("prctl: %s", strerror(errno));
-#endif
-
     hydro_init();
+    s_set_notrace();
     s_set_signals();
     s_set_path();
 

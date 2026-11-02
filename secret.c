@@ -42,15 +42,21 @@ extern int ptrace(int, pid_t, char *, int);
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
+struct s_key {
+    uint8_t b[hydro_secretbox_KEYBYTES];
+};
+
+_Static_assert(hydro_pwhash_MASTERKEYBYTES == hydro_secretbox_KEYBYTES, "");
+
 static struct {
     char path[1024];
     struct {
         struct {
             uint8_t version;
-            uint8_t master[hydro_pwhash_MASTERKEYBYTES];
+            struct s_key master;
             uint8_t opslimit[8];
         } hdr;
-        uint8_t key[hydro_secretbox_KEYBYTES];
+        struct s_key key;
     } x;
     struct {
         uint8_t slen[2];
@@ -66,6 +72,15 @@ static struct {
     .ctx_secret = "SECRET",
     .ctx_passwd = "PASSWD",
 };
+
+static int
+s_derive(struct s_key *out, void *pass, size_t len, const char *ctx,
+         const struct s_key *key)
+{
+    return hydro_pwhash_deterministic(out->b, sizeof(out->b),
+                                      pass, len, ctx, key->b,
+                                      load64_le(s.x.hdr.opslimit), 0, 1);
+}
 
 _Noreturn static void
 s_exit(int code)
@@ -199,7 +214,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
 }
 
 static void
-s_ask_pass(void *buf, size_t size, const char *prompt)
+s_ask_pass(struct s_key *buf, const char *prompt)
 {
     unsigned char pass[128];
     size_t len = s_input(pass, sizeof(pass), prompt);
@@ -207,10 +222,8 @@ s_ask_pass(void *buf, size_t size, const char *prompt)
     if (!len)
         s_exit(0);
 
-    int r = hydro_pwhash_deterministic(buf, size,
-                                       (char *)pass, len,
-                                       s.ctx_master, s.x.hdr.master,
-                                       load64_le(s.x.hdr.opslimit), 0, 1);
+    int r = s_derive(buf, pass, len, s.ctx_master, &s.x.hdr.master);
+
     hydro_memzero(pass, sizeof(pass));
     if (r) s_fatal("s_ask_pass() failed");
 }
@@ -238,7 +251,7 @@ s_ask_agent(void)
     if (match) {
         memcpy(&s.x, s.enc, sizeof(s.x));
     } else {
-        hydro_memzero(s.x.key, sizeof(s.x.key));
+        hydro_memzero(&s.x.key, sizeof(s.x.key));
     }
     hydro_memzero(s.enc, sizeof(s.enc));
     s.pass_ok = match;
@@ -271,7 +284,7 @@ s_open_secret(int use_tty, int flags)
     if (!use_tty)
         s_exit(0);
 
-    s_ask_pass(s.x.key, sizeof(s.x.key), "Passphrase: ");
+    s_ask_pass(&s.x.key, "Passphrase: ");
     return fd;
 }
 
@@ -298,7 +311,7 @@ s_print_keys(const char *needle, int use_tty)
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(&s.entry,
                                     s.enc, sizeof(s.enc), 0,
-                                    s.ctx_secret, s.x.key))
+                                    s.ctx_secret, s.x.key.b))
             continue;
 
         size_t len = s_keylen(s.entry.msg);
@@ -321,7 +334,7 @@ s_get_secret(int fd, const char *key, int create)
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
         if (hydro_secretbox_decrypt(&s.entry,
                                     s.enc, sizeof(s.enc), 0,
-                                    s.ctx_secret, s.x.key))
+                                    s.ctx_secret, s.x.key.b))
             continue;
 
         if (create && !slot && hydro_equal(s.entry.msg, "DELETED:", 8))
@@ -344,12 +357,11 @@ s_get_secret(int fd, const char *key, int create)
             lseek(fd, slot, SEEK_SET);
         return NULL;
     }
-    char check[sizeof(s.x.key)];
-    s_ask_pass(check, sizeof(check),
-            "No secrets stored with this passphrase.\n"
-            "Please, retype it to confirm: ");
+    struct s_key check;
+    s_ask_pass(&check, "No secrets stored with this passphrase.\n"
+                       "Please, retype it to confirm: ");
 
-    if (!hydro_equal(s.x.key, check, sizeof(check)))
+    if (!hydro_equal(&s.x.key, &check, sizeof(check)))
         s_fatal("Passphrases don't match!");
 
     s.pass_ok = 1;
@@ -372,7 +384,7 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
     memcpy(s.entry.msg + t, secret, slen);     t += slen;
     hydro_random_buf(s.entry.msg + t, sizeof(s.entry.msg) - t);
     hydro_secretbox_encrypt(s.enc, &s.entry, sizeof(s.entry), 0,
-                            s.ctx_secret, s.x.key);
+                            s.ctx_secret, s.x.key.b);
 #ifndef __wasi__
     struct flock fl = {
         .l_type = F_WRLCK,
@@ -411,7 +423,7 @@ s_init(int argc, char **argv, void *data)
         default:     s_fatal("%s: %s", s.path, strerror(errno));
     }
     s.x.hdr.version = S_VER_MAJOR;
-    hydro_random_buf(s.x.hdr.master, sizeof(s.x.hdr.master));
+    hydro_random_buf(&s.x.hdr.master, sizeof(s.x.hdr.master));
     store64_le(s.x.hdr.opslimit, (uint64_t)opslimit.value);
     memset(s.enc, 0, sizeof(s.enc));
     memcpy(s.enc, &s.x.hdr, sizeof(s.x.hdr));
@@ -657,19 +669,14 @@ s_pass(int argc, char **argv, void *data)
     s_get_secret(fd, NULL, 0);
     close(fd);
 
-    uint8_t buf[hydro_pwhash_MASTERKEYBYTES];
-    uint8_t key[hydro_pwhash_MASTERKEYBYTES];
-    memcpy(key, s.x.key, sizeof(key));
+    struct s_key buf, key = s.x.key;
 
     for (int i = 1; i < argc; i++) {
-        int r = hydro_pwhash_deterministic(buf, sizeof(buf),
-                                           argv[i], s_keylen(argv[i]),
-                                           s.ctx_passwd, key,
-                                           load64_le(s.x.hdr.opslimit), 0, 1);
-        if (r) s_fatal("s_pass() failed");
-        memcpy(key, buf, sizeof(key));
+        if (s_derive(&buf, argv[i], s_keylen(argv[i]), s.ctx_passwd, &key))
+            s_fatal("s_pass() failed");
+        key = buf;
     }
-    s_normalize_and_show(buf, sizeof(buf), S_PWDGENLEN);
+    s_normalize_and_show(buf.b, sizeof(buf.b), S_PWDGENLEN);
     return 0;
 }
 

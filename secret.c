@@ -87,6 +87,13 @@ s_derive(struct s_key *out, void *pass, size_t len, const char *ctx,
                                       load64_le(s.x.hdr.ops_limit), 0, 1);
 }
 
+static int
+s_decrypt(const void *buf)
+{
+    return hydro_secretbox_decrypt(&s.entry, buf, S_ENTRYSIZE, 0,
+                                   s.ctx_secret, s.x.key.b);
+}
+
 _Noreturn static void
 s_exit(int code)
 {
@@ -317,9 +324,7 @@ s_print_keys(const char *needle, int use_tty)
     int fd = s_open_secret(use_tty, O_RDONLY);
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(&s.entry,
-                                    s.enc, sizeof(s.enc), 0,
-                                    s.ctx_secret, s.x.key.b))
+        if (s_decrypt(s.enc))
             continue;
 
         const char *key = (const char *)s.entry.data.b;
@@ -341,9 +346,7 @@ s_get_secret(int fd, const char *key, int create)
     off_t slot = 0;
 
     while (s_read(fd, s.enc, sizeof(s.enc)) == sizeof(s.enc)) {
-        if (hydro_secretbox_decrypt(&s.entry,
-                                    s.enc, sizeof(s.enc), 0,
-                                    s.ctx_secret, s.x.key.b))
+        if (s_decrypt(s.enc))
             continue;
 
         if (create && !slot && hydro_equal(s.entry.data.b, "DELETED:", 8))

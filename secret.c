@@ -47,6 +47,10 @@ struct s_key {
     uint8_t b[hydro_secretbox_KEYBYTES];
 };
 
+struct s_data {
+    uint8_t b[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
+};
+
 _Static_assert(hydro_pwhash_MASTERKEYBYTES == hydro_secretbox_KEYBYTES, "");
 
 static struct {
@@ -61,7 +65,7 @@ static struct {
     } x;
     struct {
         uint8_t slen[2];
-        char msg[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
+        struct s_data data;
     } entry;
     uint8_t enc[S_ENTRYSIZE];
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
@@ -120,7 +124,7 @@ s_read(int fd, void *data, size_t size)
     struct pollfd pfd = {.fd = fd, .events = POLLIN};
 
     while (done < size) {
-        ssize_t r = read(fd, (char *)data + done, size - done);
+        ssize_t r = read(fd, (uint8_t *)data + done, size - done);
         if (r == 0)
             break;
         if (r == (ssize_t)-1) switch (errno) {
@@ -140,7 +144,7 @@ s_write(int fd, const void *data, size_t size)
     struct pollfd pfd = {.fd = fd, .events = POLLOUT};
 
     while (done < size) {
-        ssize_t r = write(fd, (const char *)data + done, size - done);
+        ssize_t r = write(fd, (const uint8_t *)data + done, size - done);
         if (r == 0)
             break;
         if (r == (ssize_t)-1) switch (errno) {
@@ -154,7 +158,7 @@ s_write(int fd, const void *data, size_t size)
 }
 
 static size_t
-s_input(unsigned char *buf, size_t size, const char *prompt)
+s_input(uint8_t *buf, size_t size, const char *prompt)
 {
 #ifdef __wasi__
     if (prompt)
@@ -217,7 +221,7 @@ s_input(unsigned char *buf, size_t size, const char *prompt)
 static void
 s_ask_pass(struct s_key *buf, const char *prompt)
 {
-    unsigned char pass[128];
+    uint8_t pass[128];
     size_t len = s_input(pass, sizeof(pass), prompt);
 
     if (!len)
@@ -318,18 +322,19 @@ s_print_keys(const char *needle, int use_tty)
                                     s.ctx_secret, s.x.key.b))
             continue;
 
-        size_t len = s_keylen(s.entry.msg);
+        const char *key = (const char *)s.entry.data.b;
+        size_t len = s_keylen(key);
 
-        if (needle && !strcasestr(s.entry.msg, needle))
-            continue;
-
-        s_write(1, s.entry.msg, len);
-        s_write(1, "\n", 1);
+        if (!needle || strcasestr(key, needle)) {
+            s_write(1, key, len);
+            s_write(1, "\n", 1);
+        }
+        hydro_memzero(&s.entry, sizeof(s.entry));
     }
     close(fd);
 }
 
-static const char *
+static const uint8_t *
 s_get_secret(int fd, const char *key, int create)
 {
     size_t len = key ? s_keylen(key) : 0;
@@ -341,17 +346,18 @@ s_get_secret(int fd, const char *key, int create)
                                     s.ctx_secret, s.x.key.b))
             continue;
 
-        if (create && !slot && hydro_equal(s.entry.msg, "DELETED:", 8))
+        if (create && !slot && hydro_equal(s.entry.data.b, "DELETED:", 8))
             slot = lseek(fd, 0, SEEK_CUR) - (off_t)sizeof(s.enc);
 
-        if (key && hydro_equal(s.entry.msg, key, len + 1)) {
+        if (key && hydro_equal(s.entry.data.b, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
             if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
                 s_fatal("seek: %s", strerror(errno));
-            return &s.entry.msg[len + 1];
+            return s.entry.data.b + len + 1;
         }
         s.pass_ok = 1;
+        hydro_memzero(&s.entry, sizeof(s.entry));
     }
     if (key && !create)
         s_fatal("Secret %s not found", key);
@@ -373,20 +379,20 @@ s_get_secret(int fd, const char *key, int create)
 }
 
 static void
-s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
+s_set_secret(int fd, const char *key, const uint8_t *secret, size_t slen)
 {
     size_t len = s_keylen(key);
 
-    if (len + slen + 1 > sizeof(s.entry.msg))
+    if (len + slen + 1 > sizeof(s.entry.data))
         s_fatal("Entry too big!");
 
     store16_le(s.entry.slen, slen);
 
     size_t t = 0;
-    memcpy(s.entry.msg, key, len);             t += len;
-    s.entry.msg[t] = 0;                        t += 1;
-    memcpy(s.entry.msg + t, secret, slen);     t += slen;
-    hydro_random_buf(s.entry.msg + t, sizeof(s.entry.msg) - t);
+    memcpy(s.entry.data.b, key, len);          t += len;
+    s.entry.data.b[t] = 0;                     t += 1;
+    memcpy(s.entry.data.b + t, secret, slen);  t += slen;
+    hydro_random_buf(s.entry.data.b + t, sizeof(s.entry.data) - t);
     hydro_secretbox_encrypt(s.enc, &s.entry, sizeof(s.entry), 0,
                             s.ctx_secret, s.x.key.b);
 #ifndef __wasi__
@@ -399,6 +405,7 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
         s_fatal("Unable to lock %s", s.path);
 #endif
     s_write(fd, s.enc, sizeof(s.enc));
+    hydro_memzero(&s.entry, sizeof(s.entry));
 }
 
 static int
@@ -432,6 +439,7 @@ s_init(int argc, char **argv, void *data)
     memset(s.enc, 0, sizeof(s.enc));
     memcpy(s.enc, &s.x.hdr, sizeof(s.x.hdr));
     s_write(fd, s.enc, sizeof(s.enc));
+    hydro_memzero(s.enc, sizeof(s.enc));
     return 0;
 }
 
@@ -448,7 +456,7 @@ s_list(int argc, char **argv, void *data)
 }
 
 static size_t
-s_normalize_and_show(unsigned char *buf, size_t size, size_t want)
+s_normalize_and_show(uint8_t *buf, size_t size, size_t want)
 {
     const unsigned n = 1U + '~' - '!';
     size_t k = 0;
@@ -482,8 +490,8 @@ s_do(int argc, char **argv, void *data)
         return -1;
     }
     int fd = s_open_secret(1, O_RDWR);
-    const char *old = s_get_secret(fd, argv[1], op & s_op_create);
-    unsigned char secret[S_ENTRYSIZE];
+    const uint8_t *old = s_get_secret(fd, argv[1], op & s_op_create);
+    uint8_t secret[S_ENTRYSIZE];
     size_t len = 0;
 
     if (op & s_op_generate) {
@@ -502,6 +510,7 @@ s_do(int argc, char **argv, void *data)
 
     s_set_secret(fd, argv[argc - 1], secret, len);
     close(fd);
+    hydro_memzero(secret, sizeof(secret));
     return 0;
 }
 
@@ -555,11 +564,11 @@ s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
         store32_be(&digest[i << 2], x[i]);
 }
 
-static void
-s_totp(const char *secret, size_t len)
+static size_t
+s_totp(struct s_data *out, const uint8_t *secret, size_t len)
 {
     if (!len || len > 64)
-        return;
+        return (size_t)-1;
 
     uint8_t h[20];
     uint8_t ki[64 +  8] = {0};
@@ -581,47 +590,54 @@ s_totp(const char *secret, size_t len)
 
     uint32_t ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31))
                  % UINT32_C(1000000);
-    char tmp[7];
-    if (snprintf(tmp, sizeof(tmp), "%06" PRIu32, ret) == 6)
-        s_write(1, tmp, 6);
+
+    hydro_memzero(h, sizeof(h));
+    return snprintf((char *)out->b, sizeof(out->b), "%06" PRIu32, ret);
 }
 
-static unsigned
-s_b32(char c)
+static int
+s_b32(uint8_t c)
 {
     if (c >= 'A' && c <= 'Z') {
         return c - 'A';
     } else if (c >= '2' && c <= '7') {
         return c - '2' + ('Z' - 'A') + 1;
     }
-    s_fatal("Invalid base32 character");
+    return -1;
 }
 
-static void
-s_totp32(const char *secret, size_t len)
+static size_t
+s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
 {
     if (!len)
-        return;
+        return (size_t)-1;
 
-    char out[64];
+    uint8_t out[64];
     size_t outlen = 0;
+    size_t ret = (size_t)-1;
     unsigned buf = 0;
     int bits = 0;
 
     for (int i = 0; i < len; i++) {
-        char c = secret[i];
+        uint8_t c = secret[i];
+        int v;
 
         if (!c || c == '=' || c == '\n')
             break;
 
-        buf = (buf << 5) | s_b32(c);
+        v = s_b32(c);
+
+        if (v < 0)
+            goto out;
+
+        buf = (buf << 5) | (unsigned)v;
         bits += 5;
 
         if (bits < 8)
             continue;
 
         if (outlen == sizeof(out) - 1)
-            s_fatal("TOTP too big");
+            goto out;
 
         bits -= 8;
         out[outlen++] = (buf >> bits) & 0xFF;
@@ -629,7 +645,29 @@ s_totp32(const char *secret, size_t len)
     if (bits)
         out[outlen++] = (buf << (8 - bits)) & 0xFF;
 
-    s_totp(out, outlen);
+    ret = s_totp(totp, out, outlen);
+out:
+    hydro_memzero(out, sizeof(out));
+    return ret;
+}
+
+static size_t
+s_secret(struct s_data *out, const char *name, int raw)
+{
+    int fd = s_open_secret(1, O_RDONLY);
+    const uint8_t *secret = s_get_secret(fd, name, 0);
+    close(fd);
+
+    size_t len = load16_le(s.entry.slen);
+
+    if (!raw && strstr(name, "totp")) {
+        len = strstr(name, "totp32") ? s_totp32(out, secret, len)
+                                     : s_totp(out, secret, len);
+    } else {
+        memcpy(out->b, secret, len);
+    }
+    hydro_memzero(&s.entry, sizeof(s.entry));
+    return len;
 }
 
 static int
@@ -643,21 +681,15 @@ s_show(int argc, char **argv, void *dump)
         }
         return -1;
     }
-    int fd = s_open_secret(1, O_RDONLY);
-    const char *secret = s_get_secret(fd, argv[1], 0);
+    struct s_data out;
+    size_t len = s_secret(&out, argv[1], !!dump);
 
-    if (secret) {
-        size_t len = load16_le(s.entry.slen);
-        if (!dump && strstr(argv[1], "totp32")) {
-            s_totp32(secret, len);
-        } else if (!dump && strstr(argv[1], "totp")) {
-            s_totp(secret, len);
-        } else {
-            s_write(1, secret, len);
-        }
-        if (isatty(1)) s_write(1, "\n", 1);
-    }
-    close(fd);
+    if (len == (size_t)-1)
+        s_fatal("Invalid secret");
+
+    s_write(1, out.b, len);
+    if (isatty(1)) s_write(1, "\n", 1);
+    hydro_memzero(&out, sizeof(out));
     return 0;
 }
 

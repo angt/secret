@@ -88,6 +88,20 @@ s_derive(struct s_key *out, void *pass, size_t len, const char *ctx,
 }
 
 static int
+s_header(const void *buf)
+{
+    memcpy(&s.x.hdr, buf, sizeof(s.x.hdr));
+
+    if (s.x.hdr.version != S_VER_MAJOR)
+        return 1;
+
+    if (load64_le(s.x.hdr.ops_limit) < S_OPS_LIMIT)
+        return 2;
+
+    return 0;
+}
+
+static int
 s_decrypt(const void *buf)
 {
     return hydro_secretbox_decrypt(&s.entry, buf, S_ENTRYSIZE, 0,
@@ -285,14 +299,10 @@ s_open_secret(int use_tty, int flags)
     if (s_read(fd, s.enc, sizeof(s.enc)) != sizeof(s.enc))
         s_fatal("Unable to read %s", s.path);
 
-    memcpy(&s.x.hdr, s.enc, sizeof(s.x.hdr));
-
-    if (s.x.hdr.version != S_VER_MAJOR)
-        s_fatal("Unkown version %" PRIu8, s.x.hdr.version);
-
-    if (load64_le(s.x.hdr.ops_limit) < S_OPS_LIMIT)
-        s_fatal("Store opslimit is below the minimum of %u", S_OPS_LIMIT);
-
+    switch (s_header(s.enc)) {
+        case 1: s_fatal("Unkown version %" PRIu8, s.x.hdr.version);
+        case 2: s_fatal("Store opslimit is below the minimum of %u", S_OPS_LIMIT);
+    }
     if (!s_ask_agent())
         return fd;
 

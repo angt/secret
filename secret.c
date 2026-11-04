@@ -102,6 +102,23 @@ s_header(const void *buf)
 }
 
 static int
+s_unlock(struct s_key *out, void *pass, size_t len)
+{
+    int ret = s_derive(out, pass, len, s.ctx_master, &s.x.hdr.master);
+    hydro_memzero(pass, len);
+    return ret;
+}
+
+static void
+s_lock(void)
+{
+    hydro_memzero(&s.x.key, sizeof(s.x.key));
+    hydro_memzero(&s.entry, sizeof(s.entry));
+    hydro_memzero(s.enc, sizeof(s.enc));
+    s.pass_ok = 0;
+}
+
+static int
 s_decrypt(const void *buf)
 {
     return hydro_secretbox_decrypt(&s.entry, buf, S_ENTRYSIZE, 0,
@@ -111,7 +128,7 @@ s_decrypt(const void *buf)
 _Noreturn static void
 s_exit(int code)
 {
-    hydro_memzero(&s, sizeof(s));
+    s_lock();
     exit(code);
 }
 
@@ -248,10 +265,8 @@ s_ask_pass(struct s_key *buf, const char *prompt)
     if (!len)
         s_exit(0);
 
-    int r = s_derive(buf, pass, len, s.ctx_master, &s.x.hdr.master);
-
-    hydro_memzero(pass, sizeof(pass));
-    if (r) s_fatal("s_ask_pass() failed");
+    if (s_unlock(buf, pass, len))
+        s_fatal("s_ask_pass() failed");
 }
 
 static int

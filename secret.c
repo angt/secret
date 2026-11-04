@@ -156,6 +156,171 @@ s_fatal(const char *fmt, ...)
 }
 
 static size_t
+s_keylen(const char *str)
+{
+    if (!str || !str[0])
+        s_fatal("Empty keys are not allowed");
+
+    for (size_t i = 0; i <= S_KEYLENMAX; i++) {
+        if (!str[i])
+            return i;
+        if (str[i] > 0 && str[i] <= ' ')
+            s_fatal("Special characaters are not allowed in keys");
+    }
+    s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
+}
+
+static void
+s_sha1_process(const uint8_t *buf, uint32_t x[5])
+{
+    uint32_t w[80];
+    uint32_t a = x[0], b = x[1], c = x[2], d = x[3], e = x[4];
+
+    for (int i = 0; i < 16; i++)
+        w[i] = load32_be(&buf[i << 2]);
+
+    for (int i = 16; i < 80; i++)
+        w[i] = ROTL32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+
+    for (int i = 0; i < 80; i++) {
+        uint32_t t = ROTL32(a, 5) + e + w[i];
+             if (i < 20) t += 0x5A827999 + ((b & c) | ((~b) & d));
+        else if (i < 40) t += 0x6ED9EBA1 + (b ^ c ^ d);
+        else if (i < 60) t += 0x8F1BBCDC + ((b & c) | (b & d) | (c & d));
+        else             t += 0xCA62C1D6 + (b ^ c ^ d);
+        e = d; d = c; c = ROTL32(b, 30); b = a; a = t;
+    }
+    x[0] += a; x[1] += b; x[2] += c; x[3] += d; x[4] += e;
+}
+
+static void
+s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
+{
+    uint8_t tmp[64] = {0};
+    uint32_t x[] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    size_t p = 0;
+
+    for (; p + 64 <= len; p += 64)
+        s_sha1_process(buf + p, x);
+
+    if (len > p)
+        memcpy(tmp, buf + p, len - p);
+
+    p = len - p;
+    tmp[p++] = 0x80;
+
+    if (p > 56) {
+        s_sha1_process(tmp, x);
+        memset(tmp, 0, sizeof(tmp));
+    }
+    store64_be(tmp + 56, len << 3);
+    s_sha1_process(tmp, x);
+
+    for (int i = 0; i < 5; i++)
+        store32_be(&digest[i << 2], x[i]);
+}
+
+static size_t
+s_totp(struct s_data *out, const uint8_t *secret, size_t len)
+{
+    if (!len || len > 64)
+        return (size_t)-1;
+
+    uint8_t h[20];
+    uint8_t ki[64 +  8] = {0};
+    uint8_t ko[64 + 20] = {0};
+
+    memcpy(ki, secret, len);
+    memcpy(ko, secret, len);
+
+    for (int i = 0; i < 64; i++) {
+        ki[i] ^= 0x36;
+        ko[i] ^= 0x5c;
+    }
+    store64_be(&ki[64], ((uint64_t)time(NULL)) / 30);
+    s_sha1(&ko[64], ki, sizeof(ki));
+    s_sha1(h, ko, sizeof(ko));
+
+    hydro_memzero(ki, sizeof(ki));
+    hydro_memzero(ko, sizeof(ko));
+
+    uint32_t ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31))
+                 % UINT32_C(1000000);
+
+    hydro_memzero(h, sizeof(h));
+    return snprintf((char *)out->b, sizeof(out->b), "%06" PRIu32, ret);
+}
+
+static int
+s_b32(uint8_t c)
+{
+    if (c >= 'A' && c <= 'Z') {
+        return c - 'A';
+    } else if (c >= '2' && c <= '7') {
+        return c - '2' + ('Z' - 'A') + 1;
+    }
+    return -1;
+}
+
+static size_t
+s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
+{
+    if (!len)
+        return (size_t)-1;
+
+    uint8_t out[64];
+    size_t outlen = 0;
+    unsigned buf = 0;
+    int bits = 0;
+
+    for (int i = 0; i < len; i++) {
+        uint8_t c = secret[i];
+
+        if (!c || c == '=' || c == '\n')
+            break;
+
+        int v = s_b32(c);
+
+        if (v < 0)
+            return (size_t)-1;
+
+        buf = (buf << 5) | (unsigned)v;
+        bits += 5;
+
+        if (bits < 8)
+            continue;
+
+        if (outlen == sizeof(out) - 1)
+            return (size_t)-1;
+
+        bits -= 8;
+        out[outlen++] = (buf >> bits) & 0xFF;
+    }
+    if (bits)
+        out[outlen++] = (buf << (8 - bits)) & 0xFF;
+
+    size_t ret = s_totp(totp, out, outlen);
+    hydro_memzero(out, sizeof(out));
+    return ret;
+}
+
+static size_t
+s_secret(struct s_data *out, const char *name, int raw)
+{
+    const uint8_t *secret = s.entry.data.b + s_keylen(name) + 1;
+    size_t len = load16_le(s.entry.slen);
+
+    if (!raw && strstr(name, "totp")) {
+        len = strstr(name, "totp32") ? s_totp32(out, secret, len)
+                                     : s_totp(out, secret, len);
+    } else {
+        memcpy(out->b, secret, len);
+    }
+    hydro_memzero(&s.entry, sizeof(s.entry));
+    return len;
+}
+
+static size_t
 s_read(int fd, void *data, size_t size)
 {
     size_t done = 0;
@@ -326,21 +491,6 @@ s_open_secret(int use_tty, int flags)
 
     s_ask_pass(&s.x.key, "Passphrase: ");
     return fd;
-}
-
-static size_t
-s_keylen(const char *str)
-{
-    if (!str || !str[0])
-        s_fatal("Empty keys are not allowed");
-
-    for (size_t i = 0; i <= S_KEYLENMAX; i++) {
-        if (!str[i])
-            return i;
-        if (str[i] > 0 && str[i] <= ' ')
-            s_fatal("Special characaters are not allowed in keys");
-    }
-    s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
 }
 
 static void
@@ -540,156 +690,6 @@ s_do(int argc, char **argv, void *data)
     close(fd);
     hydro_memzero(secret, sizeof(secret));
     return 0;
-}
-
-static void
-s_sha1_process(const uint8_t *buf, uint32_t x[5])
-{
-    uint32_t w[80];
-    uint32_t a = x[0], b = x[1], c = x[2], d = x[3], e = x[4];
-
-    for (int i = 0; i < 16; i++)
-        w[i] = load32_be(&buf[i << 2]);
-
-    for (int i = 16; i < 80; i++)
-        w[i] = ROTL32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
-
-    for (int i = 0; i < 80; i++) {
-        uint32_t t = ROTL32(a, 5) + e + w[i];
-             if (i < 20) t += 0x5A827999 + ((b & c) | ((~b) & d));
-        else if (i < 40) t += 0x6ED9EBA1 + (b ^ c ^ d);
-        else if (i < 60) t += 0x8F1BBCDC + ((b & c) | (b & d) | (c & d));
-        else             t += 0xCA62C1D6 + (b ^ c ^ d);
-        e = d; d = c; c = ROTL32(b, 30); b = a; a = t;
-    }
-    x[0] += a; x[1] += b; x[2] += c; x[3] += d; x[4] += e;
-}
-
-static void
-s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
-{
-    uint8_t tmp[64] = {0};
-    uint32_t x[] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
-    size_t p = 0;
-
-    for (; p + 64 <= len; p += 64)
-        s_sha1_process(buf + p, x);
-
-    if (len > p)
-        memcpy(tmp, buf + p, len - p);
-
-    p = len - p;
-    tmp[p++] = 0x80;
-
-    if (p > 56) {
-        s_sha1_process(tmp, x);
-        memset(tmp, 0, sizeof(tmp));
-    }
-    store64_be(tmp + 56, len << 3);
-    s_sha1_process(tmp, x);
-
-    for (int i = 0; i < 5; i++)
-        store32_be(&digest[i << 2], x[i]);
-}
-
-static size_t
-s_totp(struct s_data *out, const uint8_t *secret, size_t len)
-{
-    if (!len || len > 64)
-        return (size_t)-1;
-
-    uint8_t h[20];
-    uint8_t ki[64 +  8] = {0};
-    uint8_t ko[64 + 20] = {0};
-
-    memcpy(ki, secret, len);
-    memcpy(ko, secret, len);
-
-    for (int i = 0; i < 64; i++) {
-        ki[i] ^= 0x36;
-        ko[i] ^= 0x5c;
-    }
-    store64_be(&ki[64], ((uint64_t)time(NULL)) / 30);
-    s_sha1(&ko[64], ki, sizeof(ki));
-    s_sha1(h, ko, sizeof(ko));
-
-    hydro_memzero(ki, sizeof(ki));
-    hydro_memzero(ko, sizeof(ko));
-
-    uint32_t ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31))
-                 % UINT32_C(1000000);
-
-    hydro_memzero(h, sizeof(h));
-    return snprintf((char *)out->b, sizeof(out->b), "%06" PRIu32, ret);
-}
-
-static int
-s_b32(uint8_t c)
-{
-    if (c >= 'A' && c <= 'Z') {
-        return c - 'A';
-    } else if (c >= '2' && c <= '7') {
-        return c - '2' + ('Z' - 'A') + 1;
-    }
-    return -1;
-}
-
-static size_t
-s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
-{
-    if (!len)
-        return (size_t)-1;
-
-    uint8_t out[64];
-    size_t outlen = 0;
-    unsigned buf = 0;
-    int bits = 0;
-
-    for (int i = 0; i < len; i++) {
-        uint8_t c = secret[i];
-
-        if (!c || c == '=' || c == '\n')
-            break;
-
-        int v = s_b32(c);
-
-        if (v < 0)
-            return (size_t)-1;
-
-        buf = (buf << 5) | (unsigned)v;
-        bits += 5;
-
-        if (bits < 8)
-            continue;
-
-        if (outlen == sizeof(out) - 1)
-            return (size_t)-1;
-
-        bits -= 8;
-        out[outlen++] = (buf >> bits) & 0xFF;
-    }
-    if (bits)
-        out[outlen++] = (buf << (8 - bits)) & 0xFF;
-
-    size_t ret = s_totp(totp, out, outlen);
-    hydro_memzero(out, sizeof(out));
-    return ret;
-}
-
-static size_t
-s_secret(struct s_data *out, const char *name, int raw)
-{
-    const uint8_t *secret = s.entry.data.b + s_keylen(name) + 1;
-    size_t len = load16_le(s.entry.slen);
-
-    if (!raw && strstr(name, "totp")) {
-        len = strstr(name, "totp32") ? s_totp32(out, secret, len)
-                                     : s_totp(out, secret, len);
-    } else {
-        memcpy(out->b, secret, len);
-    }
-    hydro_memzero(&s.entry, sizeof(s.entry));
-    return len;
 }
 
 static int

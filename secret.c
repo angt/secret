@@ -614,21 +614,19 @@ s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
 
     uint8_t out[64];
     size_t outlen = 0;
-    size_t ret = (size_t)-1;
     unsigned buf = 0;
     int bits = 0;
 
     for (int i = 0; i < len; i++) {
         uint8_t c = secret[i];
-        int v;
 
         if (!c || c == '=' || c == '\n')
             break;
 
-        v = s_b32(c);
+        int v = s_b32(c);
 
         if (v < 0)
-            goto out;
+            return (size_t)-1;
 
         buf = (buf << 5) | (unsigned)v;
         bits += 5;
@@ -637,7 +635,7 @@ s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
             continue;
 
         if (outlen == sizeof(out) - 1)
-            goto out;
+            return (size_t)-1;
 
         bits -= 8;
         out[outlen++] = (buf >> bits) & 0xFF;
@@ -645,8 +643,7 @@ s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
     if (bits)
         out[outlen++] = (buf << (8 - bits)) & 0xFF;
 
-    ret = s_totp(totp, out, outlen);
-out:
+    size_t ret = s_totp(totp, out, outlen);
     hydro_memzero(out, sizeof(out));
     return ret;
 }

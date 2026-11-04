@@ -651,10 +651,7 @@ s_totp32(struct s_data *totp, const uint8_t *secret, size_t len)
 static size_t
 s_secret(struct s_data *out, const char *name, int raw)
 {
-    int fd = s_open_secret(1, O_RDONLY);
-    const uint8_t *secret = s_get_secret(fd, name, 0);
-    close(fd);
-
+    const uint8_t *secret = s.entry.data.b + s_keylen(name) + 1;
     size_t len = load16_le(s.entry.slen);
 
     if (!raw && strstr(name, "totp")) {
@@ -679,6 +676,10 @@ s_show(int argc, char **argv, void *dump)
         return -1;
     }
     struct s_data out;
+    int fd = s_open_secret(1, O_RDONLY);
+    s_get_secret(fd, argv[1], 0);
+    close(fd);
+
     size_t len = s_secret(&out, argv[1], !!dump);
 
     if (len == (size_t)-1)

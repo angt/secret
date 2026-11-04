@@ -39,6 +39,7 @@ extern int ptrace(int, pid_t, char *, int);
 #define S_ENTRYSIZE  512U
 #define S_PWDGENLEN  25U
 #define S_KEYLENMAX  255U
+#define S_OPS_LIMIT  10000U
 #define S_ENV_AGENT "SECRET_AGENT"
 #define S_ENV_STORE "SECRET_STORE"
 
@@ -54,7 +55,7 @@ static struct {
         struct {
             uint8_t version;
             struct s_key master;
-            uint8_t opslimit[8];
+            uint8_t ops_limit[8];
         } hdr;
         struct s_key key;
     } x;
@@ -79,7 +80,7 @@ s_derive(struct s_key *out, void *pass, size_t len, const char *ctx,
 {
     return hydro_pwhash_deterministic(out->b, sizeof(out->b),
                                       pass, len, ctx, key->b,
-                                      load64_le(s.x.hdr.opslimit), 0, 1);
+                                      load64_le(s.x.hdr.ops_limit), 0, 1);
 }
 
 _Noreturn static void
@@ -278,6 +279,9 @@ s_open_secret(int use_tty, int flags)
     if (s.x.hdr.version != S_VER_MAJOR)
         s_fatal("Unkown version %" PRIu8, s.x.hdr.version);
 
+    if (load64_le(s.x.hdr.ops_limit) < S_OPS_LIMIT)
+        s_fatal("Store opslimit is below the minimum of %u", S_OPS_LIMIT);
+
     if (!s_ask_agent())
         return fd;
 
@@ -400,12 +404,12 @@ s_set_secret(int fd, const char *key, const unsigned char *secret, size_t slen)
 static int
 s_init(int argc, char **argv, void *data)
 {
-    struct argz_ull opslimit = {
-        .min = 100,
-        .value = 10000,
+    struct argz_ull ops_limit = {
+        .min   = S_OPS_LIMIT,
+        .value = S_OPS_LIMIT * 10U,
     };
     struct argz z[] = {
-        {"opslimit", "Number of iterations to perform", argz_ull, &opslimit},
+        {"opslimit", "Number of iterations to perform", argz_ull, &ops_limit},
         {0}};
 
     int err = argz(argc, argv, z);
@@ -424,7 +428,7 @@ s_init(int argc, char **argv, void *data)
     }
     s.x.hdr.version = S_VER_MAJOR;
     hydro_random_buf(&s.x.hdr.master, sizeof(s.x.hdr.master));
-    store64_le(s.x.hdr.opslimit, (uint64_t)opslimit.value);
+    store64_le(s.x.hdr.ops_limit, (uint64_t)ops_limit.value);
     memset(s.enc, 0, sizeof(s.enc));
     memcpy(s.enc, &s.x.hdr, sizeof(s.x.hdr));
     s_write(fd, s.enc, sizeof(s.enc));

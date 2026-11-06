@@ -168,7 +168,7 @@ Add a TOTP token:
 
     $ secret show test/totp
     Passphrase:
-    $ 123456
+    123456
 
 Add a base32 encoded TOTP token:
 
@@ -177,7 +177,7 @@ Add a base32 encoded TOTP token:
 
     $ secret show test/totp32
     Passphrase:
-    $ 123456
+    123456
 
 Derive a deterministic (a.k.a. unstored) secret:
 
@@ -195,6 +195,15 @@ Add a binary secret:
 
     $ dd if=/dev/urandom bs=1 count=32 2>/dev/null | secret set mykey
     Passphrase:
+
+On a terminal, `show` and `dump` display binary values in Base64 and append a newline:
+
+    $ secret show mykey
+    Passphrase:
+    DunNs94KPnG2I3JtXX7rI1tDpFg/tzuW6ptuR9MCyuc=
+
+When piped or redirected, `show` and `dump` write the original bytes unchanged,
+without Base64 encoding or an added newline:
 
     $ secret show mykey | xxd
     Passphrase:

@@ -207,33 +207,27 @@ s_sha1_process(const uint8_t *buf, uint32_t x[5])
         e = d; d = c; c = ROTL32(b, 30); b = a; a = t;
     }
     x[0] += a; x[1] += b; x[2] += c; x[3] += d; x[4] += e;
+
+    hydro_memzero(w, sizeof(w));
 }
 
 static void
-s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
+s_sha1(uint8_t *digest, const uint8_t *buf, size_t len)
 {
     uint8_t tmp[64] = {0};
     uint32_t x[] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
-    size_t p = 0;
 
-    for (; p + 64 <= len; p += 64)
-        s_sha1_process(buf + p, x);
-
-    if (len > p)
-        memcpy(tmp, buf + p, len - p);
-
-    p = len - p;
-    tmp[p++] = 0x80;
-
-    if (p > 56) {
-        s_sha1_process(tmp, x);
-        memset(tmp, 0, sizeof(tmp));
-    }
+    s_sha1_process(buf, x);
+    memcpy(tmp, buf + 64, len - 64);
+    tmp[len - 64] = 0x80;
     store64_be(tmp + 56, len << 3);
     s_sha1_process(tmp, x);
 
     for (int i = 0; i < 5; i++)
         store32_be(&digest[i << 2], x[i]);
+
+    hydro_memzero(tmp, sizeof(tmp));
+    hydro_memzero(x, sizeof(x));
 }
 
 S_EXPORT("secret_totp") struct s_totp
@@ -266,8 +260,10 @@ s_totp(struct s_secret secret, uint64_t counter)
                  % UINT32_C(1000000);
 
     hydro_memzero(h, sizeof(h));
+
     for (size_t i = sizeof(out.b) - 1; i--; ret /= 10)
         out.b[i] = '0' + ret % 10;
+
     return out;
 }
 
@@ -285,9 +281,6 @@ s_b32(uint8_t c)
 S_EXPORT("secret_totp32") struct s_totp
 s_totp32(struct s_secret secret, uint64_t counter)
 {
-    if (!secret.len)
-        return (struct s_totp){0};
-
     struct s_totp ret = {0};
     uint8_t out[64];
     size_t outlen = 0;
@@ -663,12 +656,12 @@ s_list(int argc, char **argv, void *data)
 }
 
 static size_t
-s_normalize_and_show(uint8_t *buf, size_t size, size_t want)
+s_normalize_and_show(uint8_t *buf, size_t size)
 {
     const unsigned n = 1U + '~' - '!';
     size_t k = 0;
 
-    for (size_t i = 0; i < size && k < want; i++) {
+    for (size_t i = 0; i < size && k < S_PWDGENLEN; i++) {
         if (buf[i] < 2 * n)
             buf[k++] = '!' + buf[i] % n;
     }
@@ -703,7 +696,7 @@ s_do(int argc, char **argv, void *data)
 
     if (op & s_op_generate) {
         hydro_random_buf(secret, sizeof(secret));
-        len = s_normalize_and_show(secret, sizeof(secret), S_PWDGENLEN);
+        len = s_normalize_and_show(secret, sizeof(secret));
     } else {
         len = isatty(0) ? s_input(secret, sizeof(secret), "Secret: ")
                         : s_read(0, secret, sizeof(secret));
@@ -774,7 +767,7 @@ s_pass(int argc, char **argv, void *data)
             s_fatal("s_pass() failed");
         key = buf;
     }
-    s_normalize_and_show(buf.b, sizeof(buf.b), S_PWDGENLEN);
+    s_normalize_and_show(buf.b, sizeof(buf.b));
     return 0;
 }
 

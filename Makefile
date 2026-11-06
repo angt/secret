@@ -7,7 +7,7 @@ secret:
 	$(X)$(CC) $(EXTRA) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) secret.c -o $@
 
 wasm:
-	zig cc -target wasm32-wasi -Os secret.c -o secret.wasm
+	zig cc -target wasm32-wasi -DNOMAIN -mexec-model=reactor -Os secret.c -o secret.wasm
 
 install: secret
 	mkdir -p $(DESTDIR)$(PREFIX)/bin

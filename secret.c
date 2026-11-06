@@ -1,24 +1,31 @@
-#include "argz/argz.c"
+#define _GNU_SOURCE
 #include "libhydrogen/hydrogen.c"
+
+#include <stdint.h>
+#include <string.h>
+
+#ifdef NOMAIN
+#define S_EXPORT(name) __attribute__((export_name(name)))
+#else
+#define S_EXPORT(name) static
+#endif
+
+#ifndef NOMAIN
+#include "argz/argz.c"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdarg.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-
-#ifndef __wasi__
-#include <signal.h>
 #include <sys/socket.h>
 #include <termios.h>
-#endif
+#include <time.h>
+#include <unistd.h>
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -31,6 +38,7 @@
 #ifdef __APPLE__
 #define PT_DENY_ATTACH 31
 extern int ptrace(int, pid_t, char *, int);
+#endif
 #endif
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
@@ -45,10 +53,6 @@ extern int ptrace(int, pid_t, char *, int);
 
 struct s_key {
     uint8_t b[hydro_secretbox_KEYBYTES];
-};
-
-struct s_data {
-    uint8_t b[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
 };
 
 struct s_secret {
@@ -75,7 +79,7 @@ static struct {
     } x;
     struct {
         uint8_t slen[2];
-        struct s_data data;
+        uint8_t data[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
     } entry;
     uint8_t enc[S_ENTRYSIZE];
     char ctx_master[hydro_pwhash_CONTEXTBYTES];
@@ -97,7 +101,7 @@ s_derive(struct s_key *out, void *pass, size_t len, const char *ctx,
                                       load64_le(s.x.hdr.ops_limit), 0, 1);
 }
 
-static int
+S_EXPORT("secret_header") int
 s_header(const void *buf)
 {
     memcpy(&s.x.hdr, buf, sizeof(s.x.hdr));
@@ -111,7 +115,7 @@ s_header(const void *buf)
     return 0;
 }
 
-static int
+S_EXPORT("secret_unlock") int
 s_unlock(void *pass, size_t len)
 {
     int ret = s_derive(&s.x.key, pass, len, s.ctx_master, &s.x.hdr.master);
@@ -119,7 +123,7 @@ s_unlock(void *pass, size_t len)
     return ret;
 }
 
-static void
+S_EXPORT("secret_lock") void
 s_lock(void)
 {
     hydro_memzero(&s.x.key, sizeof(s.x.key));
@@ -128,13 +132,14 @@ s_lock(void)
     s.pass_ok = 0;
 }
 
-static const void *
+S_EXPORT("secret_decrypt") const void *
 s_decrypt(const void *buf)
 {
     return hydro_secretbox_decrypt(&s.entry, buf, S_ENTRYSIZE, 0,
                                    s.ctx_secret, s.x.key.b) ? NULL : &s.entry;
 }
 
+#ifndef NOMAIN
 _Noreturn static void
 s_exit(int code)
 {
@@ -179,6 +184,7 @@ s_keylen(const char *str)
     }
     s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
 }
+#endif
 
 static void
 s_sha1_process(const uint8_t *buf, uint32_t x[5])
@@ -230,7 +236,7 @@ s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
         store32_be(&digest[i << 2], x[i]);
 }
 
-static struct s_totp
+S_EXPORT("secret_totp") struct s_totp
 s_totp(struct s_secret secret, uint64_t counter)
 {
     struct s_totp out = {0};
@@ -276,7 +282,7 @@ s_b32(uint8_t c)
     return -1;
 }
 
-static struct s_totp
+S_EXPORT("secret_totp32") struct s_totp
 s_totp32(struct s_secret secret, uint64_t counter)
 {
     if (!secret.len)
@@ -326,6 +332,7 @@ done:
     return ret;
 }
 
+#ifndef NOMAIN
 static int
 s_printable(const uint8_t *buf, size_t len)
 {
@@ -393,14 +400,6 @@ s_write(int fd, const void *data, size_t size)
 static size_t
 s_input(uint8_t *buf, size_t size, const char *prompt)
 {
-#ifdef __wasi__
-    if (prompt)
-        s_write(2, prompt, strlen(prompt));
-
-    ssize_t ret = read(0, buf, size);
-
-    s_write(2, "\n", 1);
-#else
     const char *tty = "/dev/tty";
     int fd = open(tty, O_RDWR | O_NOCTTY);
 
@@ -432,7 +431,6 @@ s_input(uint8_t *buf, size_t size, const char *prompt)
 
     s_write(fd, "\n", 1);
     close(fd);
-#endif
     if (ret <= 0)
         s_exit(0);
 
@@ -467,7 +465,6 @@ s_ask_pass(const char *prompt)
 static int
 s_ask_agent(void)
 {
-#ifndef __wasi__
     const char *agent = getenv(S_ENV_AGENT);
 
     if (!agent)
@@ -492,9 +489,6 @@ s_ask_agent(void)
     hydro_memzero(s.enc, sizeof(s.enc));
     s.pass_ok = match;
     return !match;
-#else
-    return 1;
-#endif
 }
 
 static int
@@ -532,7 +526,7 @@ s_print_keys(const char *needle, int use_tty)
         if (!s_decrypt(s.enc))
             continue;
 
-        const char *key = (const char *)s.entry.data.b;
+        const char *key = (const char *)s.entry.data;
         size_t len = s_keylen(key);
 
         if (!needle || strcasestr(key, needle)) {
@@ -554,17 +548,17 @@ s_get_secret(int fd, const char *key, int create)
         if (!s_decrypt(s.enc))
             continue;
 
-        if (create && !slot && hydro_equal(s.entry.data.b, "DELETED:", 8))
+        if (create && !slot && hydro_equal(s.entry.data, "DELETED:", 8))
             slot = lseek(fd, 0, SEEK_CUR) - (off_t)sizeof(s.enc);
 
-        if (key && hydro_equal(s.entry.data.b, key, len + 1)) {
+        if (key && hydro_equal(s.entry.data, key, len + 1)) {
             if (create)
                 s_fatal("Secret %s exists!", key);
             if (lseek(fd, -(off_t)sizeof(s.enc), SEEK_CUR) == (off_t)-1)
                 s_fatal("seek: %s", strerror(errno));
             struct s_secret ret = {
-                .name = (const char *)s.entry.data.b,
-                .value = s.entry.data.b + len + 1,
+                .name = (const char *)s.entry.data,
+                .value = s.entry.data + len + 1,
                 .len = load16_le(s.entry.slen),
             };
             if (ret.len > sizeof(s.entry.data) - len - 1)
@@ -604,13 +598,12 @@ s_set_secret(int fd, const char *key, const uint8_t *secret, size_t slen)
     store16_le(s.entry.slen, slen);
 
     size_t t = 0;
-    memcpy(s.entry.data.b, key, len);          t += len;
-    s.entry.data.b[t] = 0;                     t += 1;
-    memcpy(s.entry.data.b + t, secret, slen);  t += slen;
-    hydro_random_buf(s.entry.data.b + t, sizeof(s.entry.data) - t);
+    memcpy(s.entry.data, key, len);          t += len;
+    s.entry.data[t] = 0;                     t += 1;
+    memcpy(s.entry.data + t, secret, slen);  t += slen;
+    hydro_random_buf(s.entry.data + t, sizeof(s.entry.data) - t);
     hydro_secretbox_encrypt(s.enc, &s.entry, sizeof(s.entry), 0,
                             s.ctx_secret, s.x.key.b);
-#ifndef __wasi__
     struct flock fl = {
         .l_type = F_WRLCK,
         .l_whence = SEEK_CUR,
@@ -618,7 +611,6 @@ s_set_secret(int fd, const char *key, const uint8_t *secret, size_t slen)
     };
     if (fcntl(fd, F_SETLK, &fl))
         s_fatal("Unable to lock %s", s.path);
-#endif
     s_write(fd, s.enc, sizeof(s.enc));
     hydro_memzero(&s.entry, sizeof(s.entry));
 }
@@ -808,7 +800,6 @@ s_agent(int argc, char **argv, void *data)
     if (!shell)
         s_fatal("Missing env SHELL, nothing to exec!");
 
-#ifndef __wasi__
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_DGRAM, 0, sv))
         s_fatal("socketpair: %s", strerror(errno));
@@ -830,9 +821,6 @@ s_agent(int argc, char **argv, void *data)
     char *args[] = {shell, NULL};
     execvp(shell, argv[1] ? argv + 1 : args);
     s_fatal("%s: %s", shell, strerror(errno));
-#else
-    return 1;
-#endif
 }
 
 static void
@@ -863,13 +851,11 @@ s_version(int argc, char **argv, void *data)
     return 0;
 }
 
-#ifndef __wasi__
 static void
 s_handler(int sig)
 {
     (void)sig;
 }
-#endif
 
 static void
 s_set_notrace(void)
@@ -890,7 +876,6 @@ s_set_notrace(void)
 static void
 s_set_signals(void)
 {
-#ifndef __wasi__
     int sig[] = {
         SIGHUP,  SIGINT,  SIGQUIT, SIGUSR1,
         SIGUSR2, SIGPIPE, SIGALRM, SIGTERM,
@@ -902,7 +887,6 @@ s_set_signals(void)
 
     for (size_t i = 0; i < S_COUNT(sig); i++)
         sigaction(sig[i], &sa, NULL);
-#endif
 }
 
 int
@@ -939,3 +923,4 @@ main(int argc, char **argv)
     }
     s_exit(argz_main(argc, argv, z));
 }
+#endif

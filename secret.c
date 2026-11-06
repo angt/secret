@@ -735,15 +735,31 @@ s_show(int argc, char **argv, void *dump)
                            ? s_totp32(out, counter) : s_totp(out, counter);
         if (!totp.b[0])
             s_fatal("Invalid secret");
+
         s_write(1, totp.b, 6);
         hydro_memzero(&totp, sizeof(totp));
     } else if (isatty(1) && !s_printable(out.value, out.len)) {
-        for (size_t i = 0; i < out.len; i++)
-            s_write(1, (char []){"0123456789abcdef"[out.value[i] >> 4],
-                                 "0123456789abcdef"[out.value[i] & 15]}, 2);
+        for (size_t i = 0; i < out.len; i += 3) {
+            size_t n = out.len - i < 3 ? out.len - i : 3;
+            uint32_t v = 0;
+            char enc[4] = "====";
+
+            for (size_t j = 0; j < n; j++)
+                v = (v << 8) | out.value[i + j];
+
+            v <<= 8 * (3 - n);
+
+            for (size_t j = 0; j <= n; j++)
+                enc[j] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                         "abcdefghijklmnopqrstuvwxyz"
+                         "0123456789+/"[v >> (18 - 6 * j) & 63];
+
+            s_write(1, enc, sizeof(enc));
+        }
     } else {
         s_write(1, out.value, out.len);
     }
+    if (isatty(1)) s_write(1, "\n", 1);
     hydro_memzero(&s.entry, sizeof(s.entry));
     return 0;
 }

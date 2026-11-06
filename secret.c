@@ -260,7 +260,8 @@ s_totp(struct s_secret secret, uint64_t counter)
                  % UINT32_C(1000000);
 
     hydro_memzero(h, sizeof(h));
-    snprintf(out.b, sizeof(out.b), "%06" PRIu32, ret);
+    for (size_t i = sizeof(out.b) - 1; i--; ret /= 10)
+        out.b[i] = '0' + ret % 10;
     return out;
 }
 

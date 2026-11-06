@@ -43,7 +43,7 @@ extern int ptrace(int, pid_t, char *, int);
 
 #define S_COUNT(x)  (sizeof(x) / sizeof((x)[0]))
 #define S_VER_MAJOR  0U
-#define S_VER_MINOR  20U
+#define S_VER_MINOR  21U
 #define S_ENTRYSIZE  512U
 #define S_PWDGENLEN  25U
 #define S_KEYLENMAX  255U

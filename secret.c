@@ -112,9 +112,9 @@ s_header(const void *buf)
 }
 
 static int
-s_unlock(struct s_key *out, void *pass, size_t len)
+s_unlock(void *pass, size_t len)
 {
-    int ret = s_derive(out, pass, len, s.ctx_master, &s.x.hdr.master);
+    int ret = s_derive(&s.x.key, pass, len, s.ctx_master, &s.x.hdr.master);
     hydro_memzero(pass, len);
     return ret;
 }
@@ -451,7 +451,7 @@ s_input(uint8_t *buf, size_t size, const char *prompt)
 }
 
 static void
-s_ask_pass(struct s_key *buf, const char *prompt)
+s_ask_pass(const char *prompt)
 {
     uint8_t pass[128];
     size_t len = s_input(pass, sizeof(pass), prompt);
@@ -459,7 +459,7 @@ s_ask_pass(struct s_key *buf, const char *prompt)
     if (!len)
         s_exit(0);
 
-    if (s_unlock(buf, pass, len))
+    if (s_unlock(pass, len))
         s_fatal("s_ask_pass() failed");
 }
 
@@ -518,7 +518,7 @@ s_open_secret(int use_tty, int flags)
     if (!use_tty)
         s_exit(0);
 
-    s_ask_pass(&s.x.key, "Passphrase: ");
+    s_ask_pass("Passphrase: ");
     return fd;
 }
 
@@ -581,9 +581,9 @@ s_get_secret(int fd, const char *key, int create)
             lseek(fd, slot, SEEK_SET);
         return (struct s_secret){0};
     }
-    struct s_key check;
-    s_ask_pass(&check, "No secrets stored with this passphrase.\n"
-                       "Please, retype it to confirm: ");
+    struct s_key check = s.x.key;
+    s_ask_pass("No secrets stored with this passphrase.\n"
+               "Please, retype it to confirm: ");
 
     if (!hydro_equal(&s.x.key, &check, sizeof(check)))
         s_fatal("Passphrases don't match!");

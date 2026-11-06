@@ -231,7 +231,7 @@ s_sha1(uint8_t *digest, uint8_t *buf, size_t len)
 }
 
 static struct s_totp
-s_totp(struct s_secret secret)
+s_totp(struct s_secret secret, uint64_t counter)
 {
     struct s_totp out = {0};
 
@@ -249,7 +249,7 @@ s_totp(struct s_secret secret)
         ki[i] ^= 0x36;
         ko[i] ^= 0x5c;
     }
-    store64_be(&ki[64], ((uint64_t)time(NULL)) / 30);
+    store64_be(&ki[64], counter);
     s_sha1(&ko[64], ki, sizeof(ki));
     s_sha1(h, ko, sizeof(ko));
 
@@ -276,7 +276,7 @@ s_b32(uint8_t c)
 }
 
 static struct s_totp
-s_totp32(struct s_secret secret)
+s_totp32(struct s_secret secret, uint64_t counter)
 {
     if (!secret.len)
         return (struct s_totp){0};
@@ -318,7 +318,7 @@ s_totp32(struct s_secret secret)
         .value = out,
         .len = outlen,
     };
-    ret = s_totp(decoded);
+    ret = s_totp(decoded, counter);
 
 done:
     hydro_memzero(out, sizeof(out));
@@ -744,8 +744,9 @@ s_show(int argc, char **argv, void *dump)
     close(fd);
 
     if (!dump && strstr(out.name, "totp")) {
+        uint64_t counter = (uint64_t)time(NULL) / 30;
         struct s_totp totp = strstr(out.name, "totp32")
-                           ? s_totp32(out) : s_totp(out);
+                           ? s_totp32(out, counter) : s_totp(out, counter);
         if (!totp.b[0])
             s_fatal("Invalid secret");
         s_write(1, totp.b, 6);

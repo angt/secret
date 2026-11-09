@@ -16,22 +16,13 @@ jobs:
       run: sudo snap install zig --classic --beta
 
     - name: Build
-      run: |
-        for target in \
-          aarch64-linux-musl \
-          aarch64-macos-none \
-          x86_64-linux-musl \
-          x86_64-macos-none
-        do
-          zig cc -target "$target" -Os -s -o secret-${target%-*} secret.c
-          gzip -9 secret-${target%-*}
-        done
+      run: zig build -Dall
 
     - name: Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         case "$GITHUB_REF" in (refs/tags/v*)
-          gh release create "$GITHUB_REF_NAME" secret-*.gz \
+          gh release create "$GITHUB_REF_NAME" zig-out/bin/* \
              --title "secret ${GITHUB_REF_NAME#v}"
         esac

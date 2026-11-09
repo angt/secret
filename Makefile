@@ -6,9 +6,6 @@ PREFIX = $(prefix)
 secret:
 	$(X)$(CC) $(EXTRA) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) secret.c -o $@
 
-wasm:
-	zig cc -target wasm32-wasi -DNOMAIN -mexec-model=reactor -Os secret.c -o secret.wasm
-
 install: secret
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	mv -f secret $(DESTDIR)$(PREFIX)/bin
@@ -19,4 +16,4 @@ uninstall:
 clean:
 	rm -f secret
 
-.PHONY: secret wasm install uninstall clean
+.PHONY: secret install uninstall clean

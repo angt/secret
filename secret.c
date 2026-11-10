@@ -139,53 +139,6 @@ s_decrypt(const void *buf)
                                    s.ctx_secret, s.x.key.b) ? NULL : &s.entry;
 }
 
-#ifndef NOMAIN
-_Noreturn static void
-s_exit(int code)
-{
-    s_lock();
-    exit(code);
-}
-
-_Noreturn static void
-s_fatal(const char *fmt, ...)
-{
-    va_list ap;
-    char tmp[256] = "Fatal: ";
-    char *buf = &tmp[7];
-    size_t size = sizeof(tmp) - 7;
-
-    va_start(ap, fmt);
-    int ret = vsnprintf(buf, size, fmt, ap);
-    va_end(ap);
-
-    if (ret <= 0)
-        s_exit(1);
-
-    if (size <= (size_t)ret)
-        ret = size - 1;
-
-    buf[ret] = '\n';
-    (void)!write(2, tmp, ret + 8);
-    s_exit(1);
-}
-
-static size_t
-s_keylen(const char *str)
-{
-    if (!str || !str[0])
-        s_fatal("Empty keys are not allowed");
-
-    for (size_t i = 0; i <= S_KEYLENMAX; i++) {
-        if (!str[i])
-            return i;
-        if (str[i] > 0 && str[i] <= ' ')
-            s_fatal("Special characaters are not allowed in keys");
-    }
-    s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
-}
-#endif
-
 static void
 s_sha1_process(const uint8_t *buf, uint32_t x[5])
 {
@@ -326,6 +279,52 @@ done:
 }
 
 #ifndef NOMAIN
+
+_Noreturn static void
+s_exit(int code)
+{
+    s_lock();
+    exit(code);
+}
+
+_Noreturn static void
+s_fatal(const char *fmt, ...)
+{
+    va_list ap;
+    char tmp[256] = "Fatal: ";
+    char *buf = &tmp[7];
+    size_t size = sizeof(tmp) - 7;
+
+    va_start(ap, fmt);
+    int ret = vsnprintf(buf, size, fmt, ap);
+    va_end(ap);
+
+    if (ret <= 0)
+        s_exit(1);
+
+    if (size <= (size_t)ret)
+        ret = size - 1;
+
+    buf[ret] = '\n';
+    (void)!write(2, tmp, ret + 8);
+    s_exit(1);
+}
+
+static size_t
+s_keylen(const char *str)
+{
+    if (!str || !str[0])
+        s_fatal("Empty keys are not allowed");
+
+    for (size_t i = 0; i <= S_KEYLENMAX; i++) {
+        if (!str[i])
+            return i;
+        if (str[i] > 0 && str[i] <= ' ')
+            s_fatal("Special characaters are not allowed in keys");
+    }
+    s_fatal("Keys are limited to %u bytes", S_KEYLENMAX);
+}
+
 static int
 s_printable(const uint8_t *buf, size_t len)
 {
@@ -932,4 +931,5 @@ main(int argc, char **argv)
     }
     s_exit(argz_main(argc, argv, z));
 }
-#endif
+
+#endif // NOMAIN

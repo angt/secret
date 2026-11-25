@@ -61,10 +61,6 @@ struct s_secret {
     size_t len;
 };
 
-struct s_totp {
-    char b[7];
-};
-
 _Static_assert(hydro_pwhash_MASTERKEYBYTES == hydro_secretbox_KEYBYTES, "");
 
 static struct {
@@ -183,98 +179,76 @@ s_sha1(uint8_t *digest, const uint8_t *buf, size_t len)
     hydro_memzero(x, sizeof(x));
 }
 
-S_EXPORT("secret_totp") struct s_totp
-s_totp(struct s_secret secret, uint64_t counter)
+static size_t
+s_b32_decode(uint8_t out[64], const uint8_t *value, size_t len)
 {
-    struct s_totp out = {0};
-
-    if (!secret.len || secret.len > 64)
-        return out;
-
-    uint8_t h[20];
-    uint8_t ki[64 +  8] = {0};
-    uint8_t ko[64 + 20] = {0};
-
-    memcpy(ki, secret.value, secret.len);
-    memcpy(ko, secret.value, secret.len);
-
-    for (int i = 0; i < 64; i++) {
-        ki[i] ^= 0x36;
-        ko[i] ^= 0x5c;
-    }
-    store64_be(&ki[64], counter);
-    s_sha1(&ko[64], ki, sizeof(ki));
-    s_sha1(h, ko, sizeof(ko));
-
-    hydro_memzero(ki, sizeof(ki));
-    hydro_memzero(ko, sizeof(ko));
-
-    uint32_t ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31))
-                 % UINT32_C(1000000);
-
-    hydro_memzero(h, sizeof(h));
-
-    for (size_t i = sizeof(out.b) - 1; i--; ret /= 10)
-        out.b[i] = '0' + ret % 10;
-
-    return out;
-}
-
-static int
-s_b32(uint8_t c)
-{
-    if (c >= 'A' && c <= 'Z') {
-        return c - 'A';
-    } else if (c >= '2' && c <= '7') {
-        return c - '2' + ('Z' - 'A') + 1;
-    }
-    return -1;
-}
-
-S_EXPORT("secret_totp32") struct s_totp
-s_totp32(struct s_secret secret, uint64_t counter)
-{
-    struct s_totp ret = {0};
-    uint8_t out[64];
-    size_t outlen = 0;
     unsigned buf = 0;
     int bits = 0;
+    size_t n = 0;
 
-    for (int i = 0; i < secret.len; i++) {
-        uint8_t c = secret.value[i];
+    for (size_t i = 0; i < len; i++) {
+        uint8_t c = value[i];
 
         if (!c || c == '=' || c == '\n')
             break;
 
-        int v = s_b32(c);
+        int v = c >= 'A' && c <= 'Z' ? c - 'A'
+              : c >= '2' && c <= '7' ? c - '2' + ('Z' - 'A') + 1 : -1;
 
         if (v < 0)
-            goto done;
+            return 0;
 
         buf = (buf << 5) | (unsigned)v;
-        bits += 5;
 
-        if (bits < 8)
+        if ((bits += 5) < 8)
             continue;
 
-        if (outlen == sizeof(out) - 1)
-            goto done;
+        if (n == 63)
+            return 0;
 
         bits -= 8;
-        out[outlen++] = (buf >> bits) & 0xFF;
+        out[n++] = (buf >> bits) & 0xFF;
     }
     if (bits)
-        out[outlen++] = (buf << (8 - bits)) & 0xFF;
+        out[n++] = (buf << (8 - bits)) & 0xFF;
 
-    struct s_secret decoded = {
-        .name = secret.name,
-        .value = out,
-        .len = outlen,
-    };
-    ret = s_totp(decoded, counter);
+    return n;
+}
 
-done:
-    hydro_memzero(out, sizeof(out));
+S_EXPORT("secret_otp") uint32_t
+s_otp(const uint8_t *value, size_t len, uint64_t counter, int base32)
+{
+    uint8_t ki[64 + 8] = {0};
+
+    if (base32) {
+        len = s_b32_decode(ki, value, len);
+    } else if (len && len <= 64) {
+        memcpy(ki, value, len);
+    } else {
+        len = 0;
+    }
+    uint32_t ret = 1000000;
+
+    if (len) {
+        uint8_t ko[64 + 20] = {0};
+        memcpy(ko, ki, sizeof(ki));
+
+        for (int i = 0; i < 64; i++) {
+            ki[i] ^= 0x36;
+            ko[i] ^= 0x5c;
+        }
+        store64_be(&ki[64], counter);
+        s_sha1(&ko[64], ki, sizeof(ki));
+
+        uint8_t h[20];
+        s_sha1(h, ko, sizeof(ko));
+        hydro_memzero(ko, sizeof(ko));
+
+        ret = (load32_be(&h[h[19] & 0xF]) & ~(UINT32_C(1) << 31)) % ret;
+        hydro_memzero(h, sizeof(h));
+    }
+    hydro_memzero(ki, sizeof(ki));
+
     return ret;
 }
 
@@ -729,14 +703,14 @@ s_show(int argc, char **argv, void *dump)
     close(fd);
 
     if (!dump && strstr(out.name, "totp")) {
-        uint64_t counter = (uint64_t)time(NULL) / 30;
-        struct s_totp totp = strstr(out.name, "totp32")
-                           ? s_totp32(out, counter) : s_totp(out, counter);
-        if (!totp.b[0])
+        size_t code = s_otp(out.value, out.len, (uint64_t)time(NULL) / 30,
+                            !!strstr(out.name, "totp32"));
+        if (code > 999999)
             s_fatal("Invalid secret");
 
-        s_write(1, totp.b, 6);
-        hydro_memzero(&totp, sizeof(totp));
+        char buf[7];
+        snprintf(buf, sizeof(buf), "%06zu", code);
+        s_write(1, buf, 6);
     } else if (isatty(1) && !s_printable(out.value, out.len)) {
         for (size_t i = 0; i < out.len; i += 3) {
             size_t n = out.len - i < 3 ? out.len - i : 3;

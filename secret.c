@@ -78,15 +78,8 @@ static struct {
         uint8_t data[S_ENTRYSIZE - hydro_secretbox_HEADERBYTES - 2U];
     } entry;
     uint8_t enc[S_ENTRYSIZE];
-    char ctx_master[hydro_pwhash_CONTEXTBYTES];
-    char ctx_secret[hydro_secretbox_CONTEXTBYTES];
-    char ctx_passwd[hydro_pwhash_CONTEXTBYTES];
     int pass_ok;
-} s = {
-    .ctx_master = "MASTER",
-    .ctx_secret = "SECRET",
-    .ctx_passwd = "PASSWD",
-};
+} s;
 
 static int
 s_derive(struct s_key *out, void *pass, size_t len, const char *ctx,
@@ -114,7 +107,8 @@ s_header(const void *buf)
 S_EXPORT("secret_unlock") int
 s_unlock(void *pass, size_t len)
 {
-    int ret = s_derive(&s.x.key, pass, len, s.ctx_master, &s.x.hdr.master);
+    static const char ctx[hydro_pwhash_CONTEXTBYTES] = "MASTER";
+    int ret = s_derive(&s.x.key, pass, len, ctx, &s.x.hdr.master);
     hydro_memzero(pass, len);
     return ret;
 }
@@ -131,8 +125,18 @@ s_lock(void)
 S_EXPORT("secret_decrypt") const void *
 s_decrypt(const void *buf)
 {
+    static const char ctx[hydro_secretbox_CONTEXTBYTES] = "SECRET";
     return hydro_secretbox_decrypt(&s.entry, buf, S_ENTRYSIZE, 0,
-                                   s.ctx_secret, s.x.key.b) ? NULL : &s.entry;
+                                   ctx, s.x.key.b) ? NULL : &s.entry;
+}
+
+S_EXPORT("secret_encrypt") const void *
+s_encrypt(const void *buf, const uint8_t *iv)
+{
+    static const char ctx[hydro_secretbox_CONTEXTBYTES] = "SECRET";
+    hydro_secretbox_encrypt_iv(s.enc, buf, sizeof(s.entry), 0,
+                               ctx, s.x.key.b, iv);
+    return &s.enc;
 }
 
 static void
@@ -568,8 +572,11 @@ s_set_secret(int fd, const char *key, const uint8_t *secret, size_t slen)
     s.entry.data[t] = 0;                     t += 1;
     memcpy(s.entry.data + t, secret, slen);  t += slen;
     hydro_random_buf(s.entry.data + t, sizeof(s.entry.data) - t);
-    hydro_secretbox_encrypt(s.enc, &s.entry, sizeof(s.entry), 0,
-                            s.ctx_secret, s.x.key.b);
+
+    uint8_t iv[hydro_secretbox_IVBYTES];
+    hydro_random_buf(iv, sizeof(iv));
+    s_encrypt(&s.entry, iv);
+
     struct flock fl = {
         .l_type = F_WRLCK,
         .l_whence = SEEK_CUR,
@@ -750,9 +757,10 @@ s_pass(int argc, char **argv, void *data)
     close(fd);
 
     struct s_key buf, key = s.x.key;
+    const char ctx[hydro_pwhash_CONTEXTBYTES] = "PASSWD";
 
     for (int i = 1; i < argc; i++) {
-        if (s_derive(&buf, argv[i], s_keylen(argv[i]), s.ctx_passwd, &key))
+        if (s_derive(&buf, argv[i], s_keylen(argv[i]), ctx, &key))
             s_fatal("s_pass() failed");
         key = buf;
     }
